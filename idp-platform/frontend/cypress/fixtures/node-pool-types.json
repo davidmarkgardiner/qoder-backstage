@@ -1,0 +1,48 @@
+{
+  "nodePoolTypes": [
+    {
+      "name": "standard",
+      "displayName": "Standard (General Purpose)",
+      "description": "Balanced CPU and memory for general workloads",
+      "defaultVmSize": "Standard_B8ms",
+      "napSupported": true,
+      "costTier": "low"
+    },
+    {
+      "name": "memory-optimized",
+      "displayName": "Memory Optimized", 
+      "description": "High memory-to-CPU ratio for memory-intensive applications",
+      "defaultVmSize": "Standard_E8s_v3",
+      "napSupported": true,
+      "costTier": "medium"
+    },
+    {
+      "name": "compute-optimized",
+      "displayName": "Compute Optimized",
+      "description": "High CPU performance for CPU-intensive workloads",
+      "defaultVmSize": "Standard_F8s_v2", 
+      "napSupported": true,
+      "costTier": "medium"
+    }
+  ],
+  "recommendations": [
+    {
+      "nodePoolType": "standard",
+      "useCase": "Web applications, microservices, development environments",
+      "pros": ["Cost-effective", "Balanced performance", "Good for most workloads"],
+      "cons": ["May not handle memory-intensive tasks well"]
+    },
+    {
+      "nodePoolType": "memory-optimized",
+      "useCase": "In-memory databases, caches, big data analytics",
+      "pros": ["Excellent for memory-intensive workloads", "High memory bandwidth"],
+      "cons": ["Higher cost per hour", "Overkill for CPU-bound tasks"]
+    },
+    {
+      "nodePoolType": "compute-optimized",
+      "useCase": "CPU-intensive applications, batch processing, gaming servers",
+      "pros": ["High CPU performance", "Excellent for compute workloads"],
+      "cons": ["Limited memory per core", "Higher cost for memory-intensive tasks"]
+    }
+  ]
+}

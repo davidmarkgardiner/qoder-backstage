@@ -1,0 +1,175 @@
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: rg-demo-cluster
+  namespace: azure-system
+  labels:
+    cluster-name: demo-cluster
+    environment: dev
+spec:
+  location: eastus
+  tags:
+    environment: dev
+    createdBy: aks-idp
+    purpose: aks-cluster
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: id-demo-cluster
+  namespace: azure-system
+  labels:
+    cluster-name: demo-cluster
+spec:
+  location: eastus
+  owner:
+    name: rg-demo-cluster
+  tags:
+    cluster-name: demo-cluster
+    environment: dev
+---
+apiVersion: network.azure.com/v1api20201101
+kind: VirtualNetwork
+metadata:
+  name: vnet-demo-cluster
+  namespace: azure-system
+  labels:
+    cluster-name: demo-cluster
+spec:
+  location: eastus
+  owner:
+    name: rg-demo-cluster
+  addressSpace:
+    addressPrefixes:
+      - "10.0.0.0/16"
+  subnets:
+    - name: subnet-aks
+      properties:
+        addressPrefix: "10.0.1.0/24"
+  tags:
+    cluster-name: demo-cluster
+    environment: dev
+---
+apiVersion: operationalinsights.azure.com/v1api20210601
+kind: Workspace
+metadata:
+  name: log-analytics-demo-cluster
+  namespace: azure-system
+  labels:
+    cluster-name: demo-cluster
+spec:
+  location: eastus
+  owner:
+    name: rg-demo-cluster
+  sku:
+    name: PerGB2018
+  retentionInDays: 30
+  publicNetworkAccessForIngestion: Enabled
+  publicNetworkAccessForQuery: Enabled
+  tags:
+    cluster-name: demo-cluster
+    environment: dev
+---
+apiVersion: containerservice.azure.com/v1api20240402preview
+kind: ManagedCluster
+metadata:
+  name: demo-cluster
+  namespace: azure-system
+  labels:
+    cluster-name: demo-cluster
+    environment: dev
+spec:
+  location: eastus
+  owner:
+    name: rg-demo-cluster
+  
+  # Identity configuration
+  identity:
+    type: UserAssigned
+    userAssignedIdentities:
+      - reference:
+          name: id-demo-cluster
+  
+  # DNS prefix
+  dnsPrefix: demo-cluster
+  
+  # Kubernetes version
+  kubernetesVersion: "1.28.3"
+  
+  # Node Auto Provisioning Profile
+  nodeProvisioningProfile:
+    mode: Auto
+  
+  # Agent Pool Profiles (Node Pools)
+  agentPoolProfiles:
+    - name: systempool
+      mode: System
+      count: 1
+      vmSize: Standard_DS2_v2
+      enableAutoScaling: true
+      minCount: 1
+      maxCount: 3
+      availabilityZones:
+        - "1"
+        - "2"
+        - "3"
+      vnetSubnetReference:
+        name: vnet-demo-cluster
+        subnetName: subnet-aks
+      tags:
+        pool-type: system
+  
+  # Network Profile
+  networkProfile:
+    networkPlugin: azure
+    networkPluginMode: overlay
+    networkPolicy: cilium
+    serviceCidr: "10.100.0.0/16"
+    dnsServiceIP: "10.100.0.10"
+    loadBalancerSku: Standard
+  
+  # Security Profile
+  securityProfile:
+    workloadIdentity:
+      enabled: true
+    defender:
+      logAnalyticsWorkspaceResourceReference:
+        name: log-analytics-demo-cluster
+      securityMonitoring:
+        enabled: true
+  
+  # Auto-upgrade Profile
+  autoUpgradeProfile:
+    upgradeChannel: stable
+    nodeOSUpgradeChannel: NodeImage
+  
+  # Add-ons
+  addonProfiles:
+    omsAgent:
+      enabled: true
+      config:
+        logAnalyticsWorkspaceResourceReference:
+          name: log-analytics-demo-cluster
+    azurePolicy:
+      enabled: true
+    azureKeyvaultSecretsProvider:
+      enabled: true
+      config:
+        enableSecretRotation: "true"
+  
+  # API Server Access Profile
+  apiServerAccessProfile:
+    enablePrivateCluster: false
+    authorizedIPRanges: []
+  
+  # OIDC Issuer Profile (for Workload Identity)
+  oidcIssuerProfile:
+    enabled: true
+  
+  # Tags
+  tags:
+    environment: dev
+    nodePoolType: standard
+    napEnabled: "true"
+    cluster-name: demo-cluster
+    managedBy: aks-idp

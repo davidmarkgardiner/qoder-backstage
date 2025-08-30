@@ -1,0 +1,275 @@
+apiVersion: containerservice.azure.com/v1api20240402preview
+kind: ManagedCluster
+metadata:
+  name: demo-cluster-memory-optimized
+  namespace: azure-system
+  labels:
+    cluster-name: demo-cluster-memory-optimized
+    environment: dev
+    node-pool-type: memory-optimized
+spec:
+  location: eastus
+  owner:
+    name: rg-demo-cluster-memory-optimized
+  
+  identity:
+    type: UserAssigned
+    userAssignedIdentities:
+      - reference:
+          name: id-demo-cluster-memory-optimized
+  
+  dnsPrefix: demo-cluster-memory-optimized
+  kubernetesVersion: "1.28.3"
+  
+  # Node Auto Provisioning Profile with memory-optimized focus
+  nodeProvisioningProfile:
+    mode: Auto
+  
+  # System node pool with memory-optimized VMs
+  agentPoolProfiles:
+    - name: systempool
+      mode: System
+      count: 1
+      vmSize: Standard_E2s_v3  # Memory-optimized VM
+      enableAutoScaling: true
+      minCount: 1
+      maxCount: 3
+      availabilityZones:
+        - "1"
+        - "2"
+        - "3"
+      vnetSubnetReference:
+        name: vnet-demo-cluster-memory-optimized
+        subnetName: subnet-aks
+      tags:
+        pool-type: system
+        vm-category: memory-optimized
+    
+    # Additional user node pool for memory-intensive workloads
+    - name: memorypool
+      mode: User
+      count: 0  # Start with 0, NAP will scale as needed
+      vmSize: Standard_E4s_v3  # Larger memory-optimized VM
+      enableAutoScaling: true
+      minCount: 0
+      maxCount: 10
+      availabilityZones:
+        - "1"
+        - "2"
+        - "3"
+      vnetSubnetReference:
+        name: vnet-demo-cluster-memory-optimized
+        subnetName: subnet-aks
+      nodeLabels:
+        workload-type: memory-intensive
+        node-pool: memory-optimized
+      nodeTaints:
+        - key: memory-optimized
+          value: "true"
+          effect: NoSchedule
+      tags:
+        pool-type: user
+        vm-category: memory-optimized
+        workload-type: memory-intensive
+  
+  networkProfile:
+    networkPlugin: azure
+    networkPluginMode: overlay
+    networkPolicy: cilium
+    serviceCidr: "10.100.0.0/16"
+    dnsServiceIP: "10.100.0.10"
+    loadBalancerSku: Standard
+  
+  securityProfile:
+    workloadIdentity:
+      enabled: true
+    defender:
+      logAnalyticsWorkspaceResourceReference:
+        name: log-analytics-demo-cluster-memory-optimized
+      securityMonitoring:
+        enabled: true
+  
+  autoUpgradeProfile:
+    upgradeChannel: stable
+    nodeOSUpgradeChannel: NodeImage
+  
+  addonProfiles:
+    omsAgent:
+      enabled: true
+      config:
+        logAnalyticsWorkspaceResourceReference:
+          name: log-analytics-demo-cluster-memory-optimized
+    azurePolicy:
+      enabled: true
+    azureKeyvaultSecretsProvider:
+      enabled: true
+      config:
+        enableSecretRotation: "true"
+  
+  apiServerAccessProfile:
+    enablePrivateCluster: false
+    authorizedIPRanges: []
+  
+  oidcIssuerProfile:
+    enabled: true
+  
+  tags:
+    environment: dev
+    nodePoolType: memory-optimized
+    napEnabled: "true"
+    cluster-name: demo-cluster-memory-optimized
+    managedBy: aks-idp
+---
+apiVersion: containerservice.azure.com/v1api20240402preview
+kind: ManagedCluster
+metadata:
+  name: demo-cluster-compute-optimized
+  namespace: azure-system
+  labels:
+    cluster-name: demo-cluster-compute-optimized
+    environment: dev
+    node-pool-type: compute-optimized
+spec:
+  location: eastus
+  owner:
+    name: rg-demo-cluster-compute-optimized
+  
+  identity:
+    type: UserAssigned
+    userAssignedIdentities:
+      - reference:
+          name: id-demo-cluster-compute-optimized
+  
+  dnsPrefix: demo-cluster-compute-optimized
+  kubernetesVersion: "1.28.3"
+  
+  # Node Auto Provisioning Profile with compute-optimized focus
+  nodeProvisioningProfile:
+    mode: Auto
+  
+  # System node pool with compute-optimized VMs
+  agentPoolProfiles:
+    - name: systempool
+      mode: System
+      count: 1
+      vmSize: Standard_F2s_v2  # Compute-optimized VM
+      enableAutoScaling: true
+      minCount: 1
+      maxCount: 3
+      availabilityZones:
+        - "1"
+        - "2"
+        - "3"
+      vnetSubnetReference:
+        name: vnet-demo-cluster-compute-optimized
+        subnetName: subnet-aks
+      tags:
+        pool-type: system
+        vm-category: compute-optimized
+    
+    # Additional user node pool for CPU-intensive workloads
+    - name: computepool
+      mode: User
+      count: 0  # Start with 0, NAP will scale as needed
+      vmSize: Standard_F4s_v2  # Larger compute-optimized VM
+      enableAutoScaling: true
+      minCount: 0
+      maxCount: 20  # Higher max for compute workloads
+      availabilityZones:
+        - "1"
+        - "2"
+        - "3"
+      vnetSubnetReference:
+        name: vnet-demo-cluster-compute-optimized
+        subnetName: subnet-aks
+      nodeLabels:
+        workload-type: cpu-intensive
+        node-pool: compute-optimized
+      nodeTaints:
+        - key: compute-optimized
+          value: "true"
+          effect: NoSchedule
+      tags:
+        pool-type: user
+        vm-category: compute-optimized
+        workload-type: cpu-intensive
+    
+    # Spot instance pool for batch workloads
+    - name: spotpool
+      mode: User
+      count: 0
+      vmSize: Standard_F8s_v2
+      enableAutoScaling: true
+      minCount: 0
+      maxCount: 50
+      scaleSetPriority: Spot
+      scaleSetEvictionPolicy: Delete
+      spotMaxPrice: 0.1  # Maximum price per hour
+      availabilityZones:
+        - "1"
+        - "2"
+        - "3"
+      vnetSubnetReference:
+        name: vnet-demo-cluster-compute-optimized
+        subnetName: subnet-aks
+      nodeLabels:
+        workload-type: batch
+        node-pool: spot
+        kubernetes.azure.com/scalesetpriority: spot
+      nodeTaints:
+        - key: kubernetes.azure.com/scalesetpriority
+          value: spot
+          effect: NoSchedule
+      tags:
+        pool-type: user
+        vm-category: compute-optimized
+        workload-type: batch
+        cost-optimization: spot
+  
+  networkProfile:
+    networkPlugin: azure
+    networkPluginMode: overlay
+    networkPolicy: cilium
+    serviceCidr: "10.100.0.0/16"
+    dnsServiceIP: "10.100.0.10"
+    loadBalancerSku: Standard
+  
+  securityProfile:
+    workloadIdentity:
+      enabled: true
+    defender:
+      logAnalyticsWorkspaceResourceReference:
+        name: log-analytics-demo-cluster-compute-optimized
+      securityMonitoring:
+        enabled: true
+  
+  autoUpgradeProfile:
+    upgradeChannel: stable
+    nodeOSUpgradeChannel: NodeImage
+  
+  addonProfiles:
+    omsAgent:
+      enabled: true
+      config:
+        logAnalyticsWorkspaceResourceReference:
+          name: log-analytics-demo-cluster-compute-optimized
+    azurePolicy:
+      enabled: true
+    azureKeyvaultSecretsProvider:
+      enabled: true
+      config:
+        enableSecretRotation: "true"
+  
+  apiServerAccessProfile:
+    enablePrivateCluster: false
+    authorizedIPRanges: []
+  
+  oidcIssuerProfile:
+    enabled: true
+  
+  tags:
+    environment: dev
+    nodePoolType: compute-optimized
+    napEnabled: "true"
+    cluster-name: demo-cluster-compute-optimized
+    managedBy: aks-idp

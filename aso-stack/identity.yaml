@@ -1,0 +1,137 @@
+# apiVersion: managedidentity.azure.com/v1api20230131
+# kind: UserAssignedIdentity
+# metadata:
+#   name: flux-identity
+#   namespace: azure-system
+# spec:
+#   azureName: flux-identity
+#   location: uksouth
+#   owner:
+#     name: at39473-weu-dev-prod
+#   operatorSpec:
+#     configMaps:
+#       clientId:
+#         name: flux-identity-cm
+#         key: clientId
+#       principalId:
+#         name: flux-identity-cm
+#         key: principalId
+#       tenantId:
+#         name: flux-identity-cm
+#         key: tenantId
+# ---
+# /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourcegroups/dns/providers/Microsoft.ManagedIdentity/userAssignedIdentities/external-dns-identity
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: external-dns-identity
+  namespace: azure-system
+spec:
+  azureName: external-dns-identity # add this to eternal-dns.yaml
+  location: uksouth
+  owner:
+    name: dns
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: external-dns-identity-cm
+        key: clientId
+      principalId:
+        name: external-dns-identity-cm
+        key: principalId
+      tenantId:
+        name: external-dns-identity-cm
+        key: tenantId
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: cert-manager-identity
+  namespace: azure-system
+spec:
+  azureName: cert-manager-identity
+  location: uksouth
+  owner:
+    name: at39473-weu-dev-prod
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: cert-manager-identity-cm
+        key: clientId
+      principalId:
+        name: cert-manager-identity-cm
+        key: principalId
+      tenantId:
+        name: cert-manager-identity-cm
+        key: tenantId
+# ---
+# apiVersion: managedidentity.azure.com/v1api20230131
+# kind: UserAssignedIdentity
+# metadata:
+#   name: aso-workload-identity
+#   namespace: azure-system
+# spec:
+#   azureName: aso-workload-identity
+#   location: uksouth
+#   owner:
+#     name: at39473-weu-dev-prod
+#   operatorSpec:
+#     configMaps:
+#       clientId:
+#         name: aso-identity-cm
+#         key: clientId
+#       principalId:
+#         name: aso-identity-cm
+#         key: principalId
+#       tenantId:
+#         name: aso-identity-cm
+#         key: tenantId
+---
+# /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourcegroups/kv/providers/Microsoft.ManagedIdentity/userAssignedIdentities/external-secrets-uami
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: external-secrets-uami
+  namespace: azure-system
+spec:
+  azureName: external-secrets-uami
+  location: uksouth
+  owner:
+    name: kv
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: eso-identity-cm
+        key: clientId
+      principalId:
+        name: eso-identity-cm
+        key: principalId
+      tenantId:
+        name: eso-identity-cm
+        key: tenantId
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: platform-api-identity
+  namespace: azure-system
+  labels:
+    platform.io/managed: "true"
+    platform.io/component: "platform-api"
+    platform.io/environment: "production"
+spec:
+  azureName: platform-api-identity
+  location: uksouth
+  owner:
+    name: platform
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: platform-api-identity-cm
+        key: clientId
+      principalId:
+        name: platform-api-identity-cm
+        key: principalId
+      tenantId:
+        name: platform-api-identity-cm
+        key: tenantId

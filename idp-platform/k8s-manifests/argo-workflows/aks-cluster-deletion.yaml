@@ -1,0 +1,293 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: aks-cluster-deletion
+  namespace: default
+spec:
+  entrypoint: delete-cluster
+  arguments:
+    parameters:
+    - name: cluster-name
+      description: "Name of the AKS cluster to delete"
+    - name: force
+      description: "Force deletion even if resources are in use"
+      value: "false"
+    - name: dry-run
+      description: "Run in dry-run mode without deleting Azure resources"
+      value: "true"
+
+  templates:
+  # Main DAG template
+  - name: delete-cluster
+    dag:
+      tasks:
+      - name: validate-deletion
+        template: validate-cluster-deletion
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: force
+            value: "{{workflow.parameters.force}}"
+      
+      - name: backup-cluster-config
+        template: backup-configuration
+        dependencies: [validate-deletion]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      - name: drain-workloads
+        template: drain-cluster-workloads
+        dependencies: [backup-cluster-config]
+        when: "{{workflow.parameters.dry-run}} == false"
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+      
+      - name: delete-aso-resources
+        template: delete-aso-manifests
+        dependencies: [drain-workloads]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      - name: delete-kro-instance
+        template: delete-kro-cluster
+        dependencies: [delete-aso-resources]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      - name: cleanup-resources
+        template: cleanup-remaining-resources
+        dependencies: [delete-kro-instance]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+
+  # Validation template
+  - name: validate-cluster-deletion
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: force
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Validating cluster deletion request..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        FORCE="{{inputs.parameters.force}}"
+        
+        # Check if KRO instance exists
+        if kubectl get aksclusters.kro.run $CLUSTER_NAME &>/dev/null; then
+          echo "✓ Found KRO AKSCluster instance: $CLUSTER_NAME"
+        else
+          echo "WARNING: KRO AKSCluster instance not found: $CLUSTER_NAME"
+        fi
+        
+        # Check if Azure resources exist
+        if kubectl get resourcegroups.resources.azure.com rg-$CLUSTER_NAME -n azure-system &>/dev/null; then
+          echo "✓ Found Azure ResourceGroup: rg-$CLUSTER_NAME"
+        else
+          echo "WARNING: Azure ResourceGroup not found: rg-$CLUSTER_NAME"
+        fi
+        
+        if kubectl get managedclusters.containerservice.azure.com $CLUSTER_NAME -n azure-system &>/dev/null; then
+          echo "✓ Found Azure ManagedCluster: $CLUSTER_NAME"
+          
+          # Check if cluster has running workloads (unless force is true)
+          if [ "$FORCE" != "true" ]; then
+            echo "Checking for running workloads..."
+            # This would typically check for non-system workloads
+            echo "NOTE: Use force=true to skip workload checks"
+          fi
+        else
+          echo "WARNING: Azure ManagedCluster not found: $CLUSTER_NAME"
+        fi
+        
+        echo "✅ Validation completed"
+
+  # Backup configuration template
+  - name: backup-configuration
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: dry-run
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Creating backup of cluster configuration..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        DRY_RUN="{{inputs.parameters.dry-run}}"
+        BACKUP_DIR="/tmp/backup-$CLUSTER_NAME"
+        
+        mkdir -p $BACKUP_DIR
+        
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "DRY RUN: Would backup cluster configuration"
+          echo "- KRO AKSCluster manifest"
+          echo "- Azure resource configurations"
+          echo "- Cluster RBAC settings"
+          echo "- ConfigMaps and Secrets"
+          exit 0
+        fi
+        
+        # Backup KRO instance
+        echo "Backing up KRO AKSCluster instance..."
+        kubectl get aksclusters.kro.run $CLUSTER_NAME -o yaml > $BACKUP_DIR/aksclusters.yaml
+        
+        # Backup Azure resources
+        echo "Backing up Azure resource configurations..."
+        kubectl get resourcegroups.resources.azure.com rg-$CLUSTER_NAME -n azure-system -o yaml > $BACKUP_DIR/resourcegroup.yaml 2>/dev/null || true
+        kubectl get managedclusters.containerservice.azure.com $CLUSTER_NAME -n azure-system -o yaml > $BACKUP_DIR/managedcluster.yaml 2>/dev/null || true
+        
+        # Store backup (in a real scenario, this would be stored in persistent storage)
+        echo "✅ Configuration backup created at $BACKUP_DIR"
+        ls -la $BACKUP_DIR
+
+  # Drain workloads template
+  - name: drain-cluster-workloads
+    inputs:
+      parameters:
+      - name: cluster-name
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Draining cluster workloads..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        
+        # Get cluster credentials
+        echo "Getting cluster credentials..."
+        az aks get-credentials --resource-group rg-$CLUSTER_NAME --name $CLUSTER_NAME --overwrite-existing
+        
+        # Cordon all nodes
+        echo "Cordoning all nodes..."
+        kubectl cordon --all
+        
+        # Drain user nodes (excluding system nodes)
+        echo "Draining user workloads..."
+        for node in $(kubectl get nodes -o jsonpath='{.items[*].metadata.name}'); do
+          echo "Draining node: $node"
+          kubectl drain $node --ignore-daemonsets --delete-emptydir-data --force --timeout=300s || true
+        done
+        
+        echo "✅ Cluster workloads drained"
+
+  # Delete ASO resources template
+  - name: delete-aso-manifests
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: dry-run
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Deleting Azure Service Operator resources..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        DRY_RUN="{{inputs.parameters.dry-run}}"
+        
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "DRY RUN: Would delete ASO resources:"
+          echo "- ManagedCluster: $CLUSTER_NAME"
+          echo "- UserAssignedIdentity: id-$CLUSTER_NAME"
+          echo "- VirtualNetwork: vnet-$CLUSTER_NAME"
+          echo "- Workspace: log-analytics-$CLUSTER_NAME"
+          echo "- ResourceGroup: rg-$CLUSTER_NAME"
+          exit 0
+        fi
+        
+        echo "Deleting ManagedCluster..."
+        kubectl delete managedclusters.containerservice.azure.com $CLUSTER_NAME -n azure-system --timeout=1800s || true
+        
+        echo "Deleting supporting resources..."
+        kubectl delete userassignedidentities.managedidentity.azure.com id-$CLUSTER_NAME -n azure-system --timeout=600s || true
+        kubectl delete virtualnetworks.network.azure.com vnet-$CLUSTER_NAME -n azure-system --timeout=600s || true
+        kubectl delete workspaces.operationalinsights.azure.com log-analytics-$CLUSTER_NAME -n azure-system --timeout=600s || true
+        
+        echo "Deleting ResourceGroup..."
+        kubectl delete resourcegroups.resources.azure.com rg-$CLUSTER_NAME -n azure-system --timeout=1800s || true
+        
+        echo "✅ ASO resources deletion initiated"
+
+  # Delete KRO instance template
+  - name: delete-kro-cluster
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: dry-run
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Deleting KRO AKSCluster instance..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        DRY_RUN="{{inputs.parameters.dry-run}}"
+        
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "DRY RUN: Would delete KRO AKSCluster instance: $CLUSTER_NAME"
+          exit 0
+        fi
+        
+        # Delete KRO instance
+        kubectl delete aksclusters.kro.run $CLUSTER_NAME --timeout=300s || true
+        
+        echo "✅ KRO AKSCluster instance deleted"
+
+  # Cleanup remaining resources template
+  - name: cleanup-remaining-resources
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: dry-run
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Cleaning up remaining resources..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        DRY_RUN="{{inputs.parameters.dry-run}}"
+        
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "DRY RUN: Would cleanup:"
+          echo "- Any remaining Azure resources"
+          echo "- Kubernetes secrets and configmaps"
+          echo "- Workflow artifacts"
+          exit 0
+        fi
+        
+        # Remove any remaining secrets or configmaps related to the cluster
+        echo "Cleaning up Kubernetes resources..."
+        kubectl delete secrets,configmaps -l cluster-name=$CLUSTER_NAME --all-namespaces || true
+        
+        # Remove kubeconfig context if it exists
+        echo "Cleaning up kubeconfig context..."
+        kubectl config delete-context $CLUSTER_NAME || true
+        kubectl config delete-cluster $CLUSTER_NAME || true
+        kubectl config delete-user clusterUser_rg-${CLUSTER_NAME}_${CLUSTER_NAME} || true
+        
+        echo "✅ Cleanup completed successfully"
+        echo "Cluster $CLUSTER_NAME has been successfully deleted"

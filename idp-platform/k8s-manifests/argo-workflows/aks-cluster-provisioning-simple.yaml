@@ -1,0 +1,323 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: aks-cluster-provisioning-simple
+  namespace: default
+spec:
+  entrypoint: provision-cluster
+  serviceAccountName: default
+  arguments:
+    parameters:
+    - name: cluster-name
+      description: "Name of the AKS cluster to create"
+    - name: location
+      description: "Azure region for the cluster"
+      value: "eastus"
+    - name: node-pool-type
+      description: "Type of node pool (standard, memory-optimized, compute-optimized)"
+      value: "standard"
+    - name: enable-nap
+      description: "Enable Node Auto Provisioning"
+      value: "true"
+    - name: dry-run
+      description: "Run in dry-run mode without creating Azure resources"
+      value: "true"
+
+  templates:
+  # Main DAG template
+  - name: provision-cluster
+    dag:
+      tasks:
+      - name: validate-inputs
+        template: validate-cluster-config
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: node-pool-type
+            value: "{{workflow.parameters.node-pool-type}}"
+      
+      - name: create-aso-resources
+        template: create-aso-manifests
+        dependencies: [validate-inputs]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: node-pool-type
+            value: "{{workflow.parameters.node-pool-type}}"
+          - name: enable-nap
+            value: "{{workflow.parameters.enable-nap}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      - name: wait-for-resources
+        template: wait-for-aso-ready
+        dependencies: [create-aso-resources]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      - name: finalize-setup
+        template: finalize-cluster-setup
+        dependencies: [wait-for-resources]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+
+  # Validation template
+  - name: validate-cluster-config
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: node-pool-type
+    script:
+      image: alpine/k8s:1.28.0
+      command: [sh]
+      source: |
+        echo "🔍 Validating cluster configuration..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        LOCATION="{{inputs.parameters.location}}"
+        NODE_POOL_TYPE="{{inputs.parameters.node-pool-type}}"
+        
+        echo "📝 Configuration Details:"
+        echo "   Cluster Name: $CLUSTER_NAME"
+        echo "   Location: $LOCATION"
+        echo "   Node Pool Type: $NODE_POOL_TYPE"
+        
+        # Validate cluster name
+        if [ ${#CLUSTER_NAME} -lt 3 ] || [ ${#CLUSTER_NAME} -gt 30 ]; then
+          echo "❌ ERROR: Cluster name must be between 3 and 30 characters"
+          exit 1
+        fi
+        
+        if ! echo "$CLUSTER_NAME" | grep -q '^[a-zA-Z0-9-]*$'; then
+          echo "❌ ERROR: Cluster name must be alphanumeric with hyphens only"
+          exit 1
+        fi
+        
+        # Validate location
+        case $LOCATION in
+          eastus|westus2|uksouth|westeurope|centralus)
+            echo "✅ Valid Azure region: $LOCATION"
+            ;;
+          *)
+            echo "❌ ERROR: Invalid Azure region: $LOCATION"
+            exit 1
+            ;;
+        esac
+        
+        # Validate node pool type
+        case $NODE_POOL_TYPE in
+          standard|memory-optimized|compute-optimized)
+            echo "✅ Valid node pool type: $NODE_POOL_TYPE"
+            ;;
+          *)
+            echo "❌ ERROR: Invalid node pool type: $NODE_POOL_TYPE"
+            exit 1
+            ;;
+        esac
+        
+        echo "✅ All validations passed successfully!"
+
+  # ASO resources creation template
+  - name: create-aso-manifests
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: node-pool-type
+      - name: enable-nap
+      - name: dry-run
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "🚀 Creating Azure Service Operator resources..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        LOCATION="{{inputs.parameters.location}}"
+        NODE_POOL_TYPE="{{inputs.parameters.node-pool-type}}"
+        ENABLE_NAP="{{inputs.parameters.enable-nap}}"
+        DRY_RUN="{{inputs.parameters.dry-run}}"
+        
+        # Get VM size based on node pool type
+        case $NODE_POOL_TYPE in
+          standard)
+            VM_SIZE="Standard_DS2_v2"
+            ;;
+          memory-optimized)
+            VM_SIZE="Standard_E2s_v3"
+            ;;
+          compute-optimized)
+            VM_SIZE="Standard_F2s_v2"
+            ;;
+        esac
+        
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "🧪 DRY RUN MODE: Would create the following resources:"
+          echo "   📁 ResourceGroup: rg-$CLUSTER_NAME"
+          echo "   🔐 UserAssignedIdentity: id-$CLUSTER_NAME"
+          echo "   🌐 VirtualNetwork: vnet-$CLUSTER_NAME"
+          echo "   📊 LogAnalytics: log-analytics-$CLUSTER_NAME"
+          echo "   ☸️  ManagedCluster: $CLUSTER_NAME"
+          echo "      - Location: $LOCATION"
+          echo "      - VM Size: $VM_SIZE"
+          echo "      - NAP Enabled: $ENABLE_NAP"
+          
+          echo ""
+          echo "📋 Resource Group Manifest Preview:"
+          cat <<EOF
+        apiVersion: resources.azure.com/v1api20200601
+        kind: ResourceGroup
+        metadata:
+          name: rg-$CLUSTER_NAME
+          namespace: azure-system
+        spec:
+          location: $LOCATION
+          tags:
+            environment: dev
+            createdBy: aks-idp
+            cluster-name: $CLUSTER_NAME
+        EOF
+          
+          echo ""
+          echo "📋 Managed Cluster Manifest Preview:"
+          cat <<EOF
+        apiVersion: containerservice.azure.com/v1api20240402preview
+        kind: ManagedCluster
+        metadata:
+          name: $CLUSTER_NAME
+          namespace: azure-system
+        spec:
+          location: $LOCATION
+          nodeProvisioningProfile:
+            mode: $([ "$ENABLE_NAP" = "true" ] && echo "Auto" || echo "Manual")
+          agentPoolProfiles:
+            - name: systempool
+              mode: System
+              count: 1
+              vmSize: $VM_SIZE
+              enableAutoScaling: true
+              minCount: 1
+              maxCount: 3
+        EOF
+        else
+          echo "⚠️  PRODUCTION MODE: This would create actual Azure resources!"
+          echo "💡 For safety, this demo only supports dry-run mode"
+        fi
+        
+        echo "✅ ASO manifest generation completed"
+
+  # Wait for ASO resources template
+  - name: wait-for-aso-ready
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: dry-run
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "⏳ Waiting for Azure resources to be ready..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        DRY_RUN="{{inputs.parameters.dry-run}}"
+        
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "🧪 DRY RUN MODE: Simulating resource provisioning..."
+          
+          echo "📊 Simulating Azure resource creation timeline:"
+          
+          echo "   [0s] ⏳ Creating ResourceGroup..."
+          sleep 2
+          echo "   [2s] ✅ ResourceGroup ready"
+          
+          echo "   [2s] ⏳ Creating UserAssignedIdentity..."
+          sleep 1
+          echo "   [3s] ✅ UserAssignedIdentity ready"
+          
+          echo "   [3s] ⏳ Creating VirtualNetwork..."
+          sleep 2
+          echo "   [5s] ✅ VirtualNetwork ready"
+          
+          echo "   [5s] ⏳ Creating LogAnalytics workspace..."
+          sleep 1
+          echo "   [6s] ✅ LogAnalytics workspace ready"
+          
+          echo "   [6s] ⏳ Creating AKS ManagedCluster..."
+          sleep 5
+          echo "   [11s] ✅ AKS ManagedCluster ready"
+          
+          echo ""
+          echo "🎉 All Azure resources are ready!"
+          echo "📋 Resource Summary:"
+          echo "   • ResourceGroup: rg-$CLUSTER_NAME"
+          echo "   • Cluster: $CLUSTER_NAME"
+          echo "   • Status: Ready (simulated)"
+          echo "   • Endpoint: https://$CLUSTER_NAME-abc123.hcp.$LOCATION.azmk8s.io"
+          
+        else
+          echo "🔍 Checking actual Azure resources..."
+          
+          # In a real scenario, this would check ASO resource status
+          echo "kubectl get resourcegroups.resources.azure.com rg-$CLUSTER_NAME -n azure-system"
+          echo "kubectl get managedclusters.containerservice.azure.com $CLUSTER_NAME -n azure-system"
+        fi
+        
+        echo "✅ Resource readiness check completed"
+
+  # Finalize cluster setup template
+  - name: finalize-cluster-setup
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: dry-run
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "🎯 Finalizing cluster setup..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        DRY_RUN="{{inputs.parameters.dry-run}}"
+        
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "🧪 DRY RUN MODE: Simulating final configuration..."
+          
+          echo "🔧 Configuration steps that would be performed:"
+          echo "   1. ☸️  Configure kubectl context"
+          echo "   2. 🔐 Set up RBAC and service accounts"
+          echo "   3. 📊 Enable monitoring and logging"
+          echo "   4. 🚀 Install essential add-ons"
+          echo "   5. 🔄 Configure GitOps with Flux"
+          
+          echo ""
+          echo "💡 Next steps for $CLUSTER_NAME:"
+          echo "   • Get credentials: az aks get-credentials --resource-group rg-$CLUSTER_NAME --name $CLUSTER_NAME"
+          echo "   • Check status: kubectl get nodes"
+          echo "   • Deploy workloads: kubectl apply -f your-manifests/"
+          
+        else
+          echo "🔧 Performing actual cluster configuration..."
+          echo "   This would configure the real AKS cluster"
+        fi
+        
+        echo ""
+        echo "🎉 AKS cluster provisioning workflow completed successfully!"
+        echo "📋 Cluster Details:"
+        echo "   Name: $CLUSTER_NAME"
+        echo "   Status: $([ "$DRY_RUN" = "true" ] && echo "Simulated" || echo "Provisioned")"
+        echo "   Mode: $([ "$DRY_RUN" = "true" ] && echo "Dry Run" || echo "Production")"

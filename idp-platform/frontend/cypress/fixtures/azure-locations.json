@@ -1,0 +1,40 @@
+{
+  "locations": [
+    {
+      "name": "eastus",
+      "displayName": "East US",
+      "description": "East US region with high availability",
+      "recommended": true
+    },
+    {
+      "name": "westus2", 
+      "displayName": "West US 2",
+      "description": "West US 2 region with latest hardware",
+      "recommended": true
+    },
+    {
+      "name": "uksouth",
+      "displayName": "UK South",
+      "description": "UK South region for European workloads", 
+      "recommended": true
+    },
+    {
+      "name": "westeurope",
+      "displayName": "West Europe",
+      "description": "West Europe region for GDPR compliance",
+      "recommended": false
+    },
+    {
+      "name": "centralus",
+      "displayName": "Central US",
+      "description": "Central US region for cost optimization",
+      "recommended": false
+    },
+    {
+      "name": "northeurope",
+      "displayName": "North Europe", 
+      "description": "North Europe region for Nordic workloads",
+      "recommended": false
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  # - resourcegroup.yaml
+  # - identity.yaml
+  # - roleassignment.yaml
+  - cluster.yaml
+  - federated.yaml
+  - extension.yaml
+  # - fluxconfiguration.yaml

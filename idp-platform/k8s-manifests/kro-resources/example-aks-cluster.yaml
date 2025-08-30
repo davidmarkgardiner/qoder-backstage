@@ -1,0 +1,15 @@
+apiVersion: kro.run/v1alpha1
+kind: AKSCluster
+metadata:
+  name: example-cluster
+  namespace: default
+spec:
+  clusterName: "example-aks-dev"
+  location: "eastus"
+  nodePoolType: "standard"
+  enableNAP: true
+  dryRun: true
+  advancedConfig:
+    kubernetesVersion: "1.28.3"
+    maxNodes: 5
+    enableSpot: false

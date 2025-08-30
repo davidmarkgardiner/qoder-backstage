@@ -1,0 +1,118 @@
+# ConfigMap for Azure configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-config
+  namespace: azure-system
+data:
+  # Azure regions and their configurations
+  regions.json: |
+    {
+      "eastus": {
+        "displayName": "East US",
+        "recommended": true,
+        "costMultiplier": 1.0,
+        "availableVMSizes": ["Standard_DS2_v2", "Standard_E2s_v3", "Standard_F2s_v2"]
+      },
+      "westus2": {
+        "displayName": "West US 2",
+        "recommended": true,
+        "costMultiplier": 1.0,
+        "availableVMSizes": ["Standard_DS2_v2", "Standard_E2s_v3", "Standard_F2s_v2"]
+      },
+      "uksouth": {
+        "displayName": "UK South",
+        "recommended": false,
+        "costMultiplier": 1.15,
+        "availableVMSizes": ["Standard_DS2_v2", "Standard_E2s_v3", "Standard_F2s_v2"]
+      },
+      "westeurope": {
+        "displayName": "West Europe",
+        "recommended": false,
+        "costMultiplier": 1.10,
+        "availableVMSizes": ["Standard_DS2_v2", "Standard_E2s_v3", "Standard_F2s_v2"]
+      }
+    }
+  
+  # Node pool type configurations
+  nodePoolTypes.json: |
+    {
+      "standard": {
+        "displayName": "Standard",
+        "description": "Balanced CPU and memory for general workloads",
+        "defaultVmSize": "Standard_DS2_v2",
+        "vmSizes": ["Standard_DS2_v2", "Standard_DS3_v2", "Standard_DS4_v2"],
+        "napSupported": true,
+        "costTier": "low"
+      },
+      "memory-optimized": {
+        "displayName": "Memory Optimized",
+        "description": "High memory-to-CPU ratio for memory-intensive workloads",
+        "defaultVmSize": "Standard_E2s_v3",
+        "vmSizes": ["Standard_E2s_v3", "Standard_E4s_v3", "Standard_E8s_v3"],
+        "napSupported": true,
+        "costTier": "medium"
+      },
+      "compute-optimized": {
+        "displayName": "Compute Optimized",
+        "description": "High CPU-to-memory ratio for compute-intensive workloads",
+        "defaultVmSize": "Standard_F2s_v2",
+        "vmSizes": ["Standard_F2s_v2", "Standard_F4s_v2", "Standard_F8s_v2"],
+        "napSupported": true,
+        "costTier": "medium"
+      }
+    }
+
+---
+# Secret for Azure Service Principal (would be populated with actual credentials)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: azure-service-principal
+  namespace: azure-system
+type: Opaque
+data:
+  # These should be base64 encoded values in a real deployment
+  # For demo purposes, using placeholder values
+  clientId: ZGVtby1jbGllbnQtaWQ=  # demo-client-id
+  clientSecret: ZGVtby1jbGllbnQtc2VjcmV0  # demo-client-secret
+  tenantId: ZGVtby10ZW5hbnQtaWQ=  # demo-tenant-id
+  subscriptionId: ZGVtby1zdWJzY3JpcHRpb24taWQ=  # demo-subscription-id
+
+---
+# ConfigMap for IDP configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: idp-config
+  namespace: default
+data:
+  config.yaml: |
+    api:
+      port: 3001
+      cors:
+        enabled: true
+        origins: ["http://localhost:3000"]
+    
+    azure:
+      defaultRegion: "eastus"
+      defaultKubernetesVersion: "1.28.3"
+      enableMonitoring: true
+      enablePolicy: true
+      
+    workflows:
+      defaultTimeout: "3600s"
+      retryLimit: 3
+      
+    kro:
+      namespace: "default"
+      
+    aso:
+      namespace: "azure-system"
+      
+    dryRun:
+      default: true
+      
+    nodeAutoProvisioning:
+      enabled: true
+      defaultMaxNodes: 10

@@ -1,0 +1,349 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: aks-cluster-provisioning
+  namespace: default
+spec:
+  entrypoint: provision-cluster
+  arguments:
+    parameters:
+    - name: cluster-name
+      description: "Name of the AKS cluster to create"
+    - name: location
+      description: "Azure region for the cluster"
+      value: "eastus"
+    - name: node-pool-type
+      description: "Type of node pool (standard, memory-optimized, compute-optimized)"
+      value: "standard"
+    - name: enable-nap
+      description: "Enable Node Auto Provisioning"
+      value: "true"
+    - name: dry-run
+      description: "Run in dry-run mode without creating Azure resources"
+      value: "true"
+    - name: kubernetes-version
+      description: "Kubernetes version"
+      value: "1.28.3"
+    - name: max-nodes
+      description: "Maximum number of nodes"
+      value: "10"
+    - name: enable-spot
+      description: "Enable spot instances"
+      value: "false"
+
+  templates:
+  # Main DAG template
+  - name: provision-cluster
+    dag:
+      tasks:
+      - name: validate-inputs
+        template: validate-cluster-config
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: node-pool-type
+            value: "{{workflow.parameters.node-pool-type}}"
+      
+      - name: create-kro-instance
+        template: create-kro-cluster
+        dependencies: [validate-inputs]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: node-pool-type
+            value: "{{workflow.parameters.node-pool-type}}"
+          - name: enable-nap
+            value: "{{workflow.parameters.enable-nap}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+          - name: kubernetes-version
+            value: "{{workflow.parameters.kubernetes-version}}"
+          - name: max-nodes
+            value: "{{workflow.parameters.max-nodes}}"
+          - name: enable-spot
+            value: "{{workflow.parameters.enable-spot}}"
+      
+      - name: wait-for-kro-resources
+        template: wait-for-kro-ready
+        dependencies: [create-kro-instance]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      - name: wait-for-cluster-ready
+        template: wait-cluster-ready
+        dependencies: [wait-for-kro-resources]
+        when: "{{workflow.parameters.dry-run}} == false"
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+      
+      - name: configure-cluster-addons
+        template: setup-cluster-addons
+        dependencies: [wait-for-cluster-ready]
+        when: "{{workflow.parameters.dry-run}} == false"
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+      
+      - name: configure-gitops
+        template: setup-flux-gitops
+        dependencies: [configure-cluster-addons]
+        when: "{{workflow.parameters.dry-run}} == false"
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+
+  # Validation template
+  - name: validate-cluster-config
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: node-pool-type
+    script:
+      image: alpine/k8s:1.28.0
+      command: [sh]
+      source: |
+        echo "Validating cluster configuration..."
+        
+        # Validate cluster name
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        if [ ${#CLUSTER_NAME} -lt 3 ] || [ ${#CLUSTER_NAME} -gt 30 ]; then
+          echo "ERROR: Cluster name must be between 3 and 30 characters"
+          exit 1
+        fi
+        
+        if ! echo "$CLUSTER_NAME" | grep -q '^[a-zA-Z0-9]*$'; then
+          echo "ERROR: Cluster name must be alphanumeric only"
+          exit 1
+        fi
+        
+        # Validate location
+        LOCATION="{{inputs.parameters.location}}"
+        case $LOCATION in
+          eastus|westus2|uksouth|westeurope|centralus)
+            echo "✓ Valid Azure region: $LOCATION"
+            ;;
+          *)
+            echo "ERROR: Invalid Azure region: $LOCATION"
+            exit 1
+            ;;
+        esac
+        
+        # Validate node pool type
+        NODE_POOL_TYPE="{{inputs.parameters.node-pool-type}}"
+        case $NODE_POOL_TYPE in
+          standard|memory-optimized|compute-optimized)
+            echo "✓ Valid node pool type: $NODE_POOL_TYPE"
+            ;;
+          *)
+            echo "ERROR: Invalid node pool type: $NODE_POOL_TYPE"
+            exit 1
+            ;;
+        esac
+        
+        echo "✅ All validations passed"
+
+  # KRO instance creation template
+  - name: create-kro-cluster
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: node-pool-type
+      - name: enable-nap
+      - name: dry-run
+      - name: kubernetes-version
+      - name: max-nodes
+      - name: enable-spot
+    resource:
+      action: create
+      successCondition: status.phase == Succeeded
+      failureCondition: status.phase == Failed
+      manifest: |
+        apiVersion: kro.run/v1alpha1
+        kind: AKSCluster
+        metadata:
+          name: "{{inputs.parameters.cluster-name}}"
+          namespace: default
+          labels:
+            argo-workflow: "{{workflow.name}}"
+        spec:
+          clusterName: "{{inputs.parameters.cluster-name}}"
+          location: "{{inputs.parameters.location}}"
+          nodePoolType: "{{inputs.parameters.node-pool-type}}"
+          enableNAP: "{{inputs.parameters.enable-nap}}"
+          dryRun: "{{inputs.parameters.dry-run}}"
+          advancedConfig:
+            kubernetesVersion: "{{inputs.parameters.kubernetes-version}}"
+            maxNodes: "{{inputs.parameters.max-nodes}}"
+            enableSpot: "{{inputs.parameters.enable-spot}}"
+
+  # Wait for KRO resources template
+  - name: wait-for-kro-ready
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: dry-run
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Waiting for KRO resources to be ready..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        DRY_RUN="{{inputs.parameters.dry-run}}"
+        
+        if [ "$DRY_RUN" = "true" ]; then
+          echo "DRY RUN: Simulating KRO resource creation"
+          echo "✓ ResourceGroup: rg-$CLUSTER_NAME (simulated)"
+          echo "✓ ManagedIdentity: id-$CLUSTER_NAME (simulated)"
+          echo "✓ VirtualNetwork: vnet-$CLUSTER_NAME (simulated)"
+          echo "✓ ManagedCluster: $CLUSTER_NAME (simulated)"
+          echo "✓ LogAnalytics: log-analytics-$CLUSTER_NAME (simulated)"
+          exit 0
+        fi
+        
+        # Wait for KRO instance to be ready
+        echo "Checking KRO instance status..."
+        kubectl wait --for=condition=Ready aksclusters.kro.run/$CLUSTER_NAME --timeout=300s
+        
+        # Check ASO resources status
+        echo "Checking Azure Service Operator resources..."
+        
+        # Wait for ResourceGroup
+        if kubectl get resourcegroups.resources.azure.com rg-$CLUSTER_NAME -n azure-system &>/dev/null; then
+          kubectl wait --for=condition=Ready resourcegroups.resources.azure.com/rg-$CLUSTER_NAME -n azure-system --timeout=600s
+          echo "✓ ResourceGroup ready"
+        fi
+        
+        # Wait for ManagedCluster
+        if kubectl get managedclusters.containerservice.azure.com $CLUSTER_NAME -n azure-system &>/dev/null; then
+          kubectl wait --for=condition=Ready managedclusters.containerservice.azure.com/$CLUSTER_NAME -n azure-system --timeout=1800s
+          echo "✓ ManagedCluster ready"
+        fi
+        
+        echo "✅ All KRO resources are ready"
+
+  # Wait for cluster ready template
+  - name: wait-cluster-ready
+    inputs:
+      parameters:
+      - name: cluster-name
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Waiting for AKS cluster to be fully ready..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        
+        # Get cluster credentials and test connectivity
+        echo "Getting cluster credentials..."
+        az aks get-credentials --resource-group rg-$CLUSTER_NAME --name $CLUSTER_NAME --overwrite-existing
+        
+        # Wait for cluster to be accessible
+        echo "Testing cluster connectivity..."
+        for i in $(seq 1 30); do
+          if kubectl cluster-info &>/dev/null; then
+            echo "✓ Cluster is accessible"
+            break
+          fi
+          echo "Waiting for cluster connectivity... ($i/30)"
+          sleep 30
+        done
+        
+        # Wait for system pods to be ready
+        echo "Waiting for system pods to be ready..."
+        kubectl wait --for=condition=Ready pods -n kube-system --timeout=600s
+        
+        # Check node status
+        echo "Checking node status..."
+        kubectl get nodes -o wide
+        
+        echo "✅ AKS cluster is fully ready"
+
+  # Cluster addons setup template
+  - name: setup-cluster-addons
+    inputs:
+      parameters:
+      - name: cluster-name
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Configuring cluster addons..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        
+        # Enable Container Insights monitoring
+        echo "Enabling Container Insights..."
+        az aks enable-addons --resource-group rg-$CLUSTER_NAME --name $CLUSTER_NAME --addons monitoring
+        
+        # Enable Azure Policy addon
+        echo "Enabling Azure Policy addon..."
+        az aks enable-addons --resource-group rg-$CLUSTER_NAME --name $CLUSTER_NAME --addons azure-policy
+        
+        # Create namespace for applications
+        echo "Creating application namespaces..."
+        kubectl create namespace applications --dry-run=client -o yaml | kubectl apply -f -
+        kubectl create namespace monitoring --dry-run=client -o yaml | kubectl apply -f -
+        
+        echo "✅ Cluster addons configured successfully"
+
+  # GitOps setup template
+  - name: setup-flux-gitops
+    inputs:
+      parameters:
+      - name: cluster-name
+    script:
+      image: bitnami/kubectl:latest
+      command: [sh]
+      source: |
+        echo "Setting up Flux GitOps..."
+        
+        CLUSTER_NAME="{{inputs.parameters.cluster-name}}"
+        
+        # Install Flux CLI (if not already installed)
+        if ! command -v flux &> /dev/null; then
+          echo "Installing Flux CLI..."
+          curl -s https://fluxcd.io/install.sh | bash
+          export PATH=$PATH:/tmp/flux/bin
+        fi
+        
+        # Bootstrap Flux (this would typically point to your Git repository)
+        echo "Bootstrapping Flux..."
+        flux check --pre
+        
+        # Create a basic Flux configuration for the cluster
+        cat <<EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: flux-system
+        ---
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: cluster-config
+          namespace: flux-system
+        data:
+          cluster-name: "$CLUSTER_NAME"
+          environment: "dev"
+        EOF
+        
+        echo "✅ GitOps configuration completed"
+        echo "Note: Complete GitOps setup requires connecting to your Git repository"

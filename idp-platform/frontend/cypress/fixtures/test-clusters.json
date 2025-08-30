@@ -1,0 +1,83 @@
+{
+  "dryRunCluster": {
+    "name": "e2e-test-dry-run",
+    "location": "uksouth",
+    "nodePoolType": "standard",
+    "dryRun": true,
+    "enableNAP": true,
+    "advancedConfig": {
+      "kubernetesVersion": "1.32",
+      "maxNodes": 5,
+      "enableSpot": false
+    },
+    "expectedDuration": 120
+  },
+  "productionCluster": {
+    "name": "e2e-test-production",
+    "location": "uksouth", 
+    "nodePoolType": "standard",
+    "dryRun": false,
+    "enableNAP": true,
+    "advancedConfig": {
+      "kubernetesVersion": "1.32",
+      "maxNodes": 3,
+      "enableSpot": false
+    },
+    "expectedDuration": 900,
+    "azureConfig": {
+      "resourceGroup": "rg-e2e-test-production",
+      "subscriptionId": "133d5755-4074-4d6e-ad38-eb2a6ad12903",
+      "vmSize": "Standard_B8ms",
+      "nodeCount": 1,
+      "availabilityZones": ["1"]
+    }
+  },
+  "memoryOptimizedCluster": {
+    "name": "e2e-test-memory-opt",
+    "location": "westeurope",
+    "nodePoolType": "memory-optimized", 
+    "dryRun": true,
+    "enableNAP": true,
+    "advancedConfig": {
+      "kubernetesVersion": "1.32",
+      "maxNodes": 10,
+      "enableSpot": true
+    },
+    "expectedDuration": 120
+  },
+  "computeOptimizedCluster": {
+    "name": "e2e-test-compute-opt",
+    "location": "northeurope",
+    "nodePoolType": "compute-optimized",
+    "dryRun": true,
+    "enableNAP": false,
+    "advancedConfig": {
+      "kubernetesVersion": "1.32", 
+      "maxNodes": 8,
+      "enableSpot": false
+    },
+    "expectedDuration": 120
+  },
+  "testMatrix": [
+    {
+      "scenario": "Basic Dry Run",
+      "config": "dryRunCluster",
+      "tags": ["smoke", "dry-run", "basic"]
+    },
+    {
+      "scenario": "Production Standard",
+      "config": "productionCluster", 
+      "tags": ["production", "standard", "azure"]
+    },
+    {
+      "scenario": "Memory Optimized Dry Run",
+      "config": "memoryOptimizedCluster",
+      "tags": ["dry-run", "memory-optimized"]
+    },
+    {
+      "scenario": "Compute Optimized Dry Run", 
+      "config": "computeOptimizedCluster",
+      "tags": ["dry-run", "compute-optimized"]
+    }
+  ]
+}

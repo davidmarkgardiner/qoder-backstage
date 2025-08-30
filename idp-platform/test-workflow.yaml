@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: test-aks-provisioning-
+  namespace: default
+spec:
+  workflowTemplateRef:
+    name: aks-cluster-provisioning-simple
+  arguments:
+    parameters:
+    - name: cluster-name
+      value: 'test-demo-cluster'
+    - name: location
+      value: 'eastus'
+    - name: node-pool-type
+      value: 'standard'
+    - name: enable-nap
+      value: 'true'
+    - name: dry-run
+      value: 'true'

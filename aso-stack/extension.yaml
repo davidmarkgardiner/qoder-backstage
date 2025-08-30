@@ -1,0 +1,24 @@
+apiVersion: kubernetesconfiguration.azure.com/v1api20230501
+kind: Extension
+metadata:
+  name: aso-flux-extension
+  namespace: azure-system
+spec:
+  azureName: aso-flux-extension
+  autoUpgradeMinorVersion: true
+  extensionType: microsoft.flux
+  identity:
+    type: SystemAssigned
+  owner:
+    group: containerservice.azure.com
+    kind: ManagedCluster
+    name: uk8s-tsshared-weu-gt025-int-prod
+  scope:
+    cluster:
+      releaseNamespace: flux-system
+  configurationSettings:
+    multiTenancy.enforce: "false"
+    image-automation-controller.enabled: "true"
+    image-reflector-controller.enabled: "true"
+    workload-identity.enabled: "true"
+    workload-identity.azureClientId: "83f3aa5e-89cc-4c2a-b5b1-b405cb140f4c"

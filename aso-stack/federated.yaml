@@ -1,0 +1,111 @@
+# apiVersion: managedidentity.azure.com/v1api20230131
+# kind: FederatedIdentityCredential
+# metadata:
+#   name: aso-fic-flux-source
+#   namespace: azure-system
+# spec:
+#   azureName: flux-identity
+#   owner:
+#     name: flux-identity
+#   audiences:
+#     - api://AzureADTokenExchange
+#   issuerFromConfig:
+#     name: aks-oidc-config-prod
+#     key: issuer-url
+#   subject: system:serviceaccount:flux-system:source-controller
+# ---
+# apiVersion: managedidentity.azure.com/v1api20230131
+# kind: FederatedIdentityCredential
+# metadata:
+#   name: aso-fic-flux-image
+#   namespace: azure-system
+# spec:
+#   azureName: flux-identity
+#   owner:
+#     name: flux-identity
+#   audiences:
+#     - api://AzureADTokenExchange
+#   issuerFromConfig:
+#     name: aks-oidc-config-prod
+#     key: issuer-url
+#   subject: system:serviceaccount:flux-system:image-automation-controller
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: aso-fic-external-dns
+  namespace: azure-system
+spec:
+  azureName: external-dns-identity
+  owner:
+    name: external-dns-identity
+  audiences:
+    - api://AzureADTokenExchange
+  issuerFromConfig:
+    name: aks-oidc-config-prod
+    key: issuer-url
+  subject: system:serviceaccount:external-dns:external-dns
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: aso-fic-cert-manager
+  namespace: azure-system
+spec:
+  azureName: cert-manager-identity
+  owner:
+    name: cert-manager-identity
+  audiences:
+    - api://AzureADTokenExchange
+  issuerFromConfig:
+    name: aks-oidc-config-prod
+    key: issuer-url
+  subject: system:serviceaccount:cert-manager:cert-manager
+# ---
+# apiVersion: managedidentity.azure.com/v1api20230131
+# kind: FederatedIdentityCredential
+# metadata:
+#   name: aso-fic-workload-identity
+#   namespace: azure-system
+# spec:
+#   azureName: aso-workload-identity-fic
+#   owner:
+#     name: aso-workload-identity
+#   audiences:
+#     - api://AzureADTokenExchange
+#   issuerFromConfig:
+#     name: aks-oidc-config-prod
+#     key: issuer-url
+#   subject: system:serviceaccount:azureserviceoperator-system:azureserviceoperator-default
+# ---
+# apiVersion: managedidentity.azure.com/v1api20230131
+# kind: FederatedIdentityCredential
+# metadata:
+#   name: aso-fic-platform-api
+#   namespace: azure-system
+# spec:
+#   azureName: platform-api-federated-credential
+#   owner:
+#     name: platform-api-identity
+#   audiences:
+#     - api://AzureADTokenExchange
+#   issuerFromConfig:
+#     name: aks-oidc-config-prod
+#     key: issuer-url
+#   subject: system:serviceaccount:platform-system:platform-api
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: FederatedIdentityCredential
+metadata:
+  name: aso-fic-external-secrets
+  namespace: azure-system
+spec:
+  azureName: aso-fic-external-secrets
+  owner:
+    name: external-secrets-uami
+  audiences:
+    - api://AzureADTokenExchange
+  issuerFromConfig:
+    name: aks-oidc-config-prod
+    key: issuer-url
+  subject: system:serviceaccount:external-secrets:external-secrets

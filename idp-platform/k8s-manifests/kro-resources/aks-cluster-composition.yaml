@@ -1,0 +1,235 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGroup
+metadata:
+  name: aks-cluster-composition
+  namespace: default
+spec:
+  schema:
+    openAPIV3Schema:
+      type: object
+      properties:
+        spec:
+          type: object
+          properties:
+            clusterName:
+              type: string
+              description: "Name of the AKS cluster"
+              minLength: 3
+              maxLength: 30
+              pattern: "^[a-zA-Z0-9]+$"
+            location:
+              type: string
+              description: "Azure region where the cluster will be created"
+              enum: 
+                - "eastus"
+                - "westus2"
+                - "uksouth"
+                - "westeurope"
+                - "centralus"
+            nodePoolType:
+              type: string
+              description: "Type of node pool configuration"
+              enum:
+                - "standard"
+                - "memory-optimized"
+                - "compute-optimized"
+            enableNAP:
+              type: boolean
+              description: "Enable Node Auto Provisioning"
+              default: true
+            dryRun:
+              type: boolean
+              description: "Run in dry-run mode without creating Azure resources"
+              default: false
+            advancedConfig:
+              type: object
+              description: "Advanced cluster configuration options"
+              properties:
+                kubernetesVersion:
+                  type: string
+                  description: "Specific Kubernetes version"
+                maxNodes:
+                  type: integer
+                  description: "Maximum number of nodes"
+                  minimum: 1
+                  maximum: 100
+                  default: 10
+                enableSpot:
+                  type: boolean
+                  description: "Enable spot instances for cost optimization"
+                  default: false
+          required:
+            - clusterName
+            - location
+            - nodePoolType
+  resources:
+    # Resource Group for organizing Azure resources
+    - id: resource-group
+      template:
+        apiVersion: resources.azure.com/v1api20200601
+        kind: ResourceGroup
+        metadata:
+          name: "rg-{{ .spec.clusterName }}"
+          namespace: azure-system
+          annotations:
+            kro.run/dry-run: "{{ .spec.dryRun }}"
+        spec:
+          location: "{{ .spec.location }}"
+          tags:
+            environment: "dev"
+            createdBy: "kro-aks-composition"
+            clusterName: "{{ .spec.clusterName }}"
+    
+    # Managed Identity for the AKS cluster
+    - id: managed-identity
+      template:
+        apiVersion: managedidentity.azure.com/v1api20230131
+        kind: UserAssignedIdentity
+        metadata:
+          name: "id-{{ .spec.clusterName }}"
+          namespace: azure-system
+          annotations:
+            kro.run/dry-run: "{{ .spec.dryRun }}"
+        spec:
+          location: "{{ .spec.location }}"
+          owner:
+            name: "rg-{{ .spec.clusterName }}"
+          tags:
+            clusterName: "{{ .spec.clusterName }}"
+    
+    # Virtual Network for the cluster
+    - id: virtual-network
+      template:
+        apiVersion: network.azure.com/v1api20201101
+        kind: VirtualNetwork
+        metadata:
+          name: "vnet-{{ .spec.clusterName }}"
+          namespace: azure-system
+          annotations:
+            kro.run/dry-run: "{{ .spec.dryRun }}"
+        spec:
+          location: "{{ .spec.location }}"
+          owner:
+            name: "rg-{{ .spec.clusterName }}"
+          addressSpace:
+            addressPrefixes:
+              - "10.0.0.0/16"
+          subnets:
+            - name: "subnet-aks"
+              properties:
+                addressPrefix: "10.0.1.0/24"
+          tags:
+            clusterName: "{{ .spec.clusterName }}"
+    
+    # AKS Managed Cluster
+    - id: managed-cluster
+      template:
+        apiVersion: containerservice.azure.com/v1api20240402preview
+        kind: ManagedCluster
+        metadata:
+          name: "{{ .spec.clusterName }}"
+          namespace: azure-system
+          annotations:
+            kro.run/dry-run: "{{ .spec.dryRun }}"
+        spec:
+          location: "{{ .spec.location }}"
+          owner:
+            name: "rg-{{ .spec.clusterName }}"
+          identity:
+            type: UserAssigned
+            userAssignedIdentities:
+              - reference:
+                  name: "id-{{ .spec.clusterName }}"
+          
+          # Node Auto Provisioning Profile
+          nodeProvisioningProfile:
+            mode: "{{ if .spec.enableNAP }}Auto{{ else }}Manual{{ end }}"
+          
+          # Default System Node Pool
+          agentPoolProfiles:
+            - name: systempool
+              mode: System
+              count: 1
+              vmSize: "{{ if eq .spec.nodePoolType \"standard\" }}Standard_DS2_v2{{ else if eq .spec.nodePoolType \"memory-optimized\" }}Standard_E2s_v3{{ else }}Standard_F2s_v2{{ end }}"
+              enableAutoScaling: true
+              minCount: 1
+              maxCount: 3
+              availabilityZones:
+                - "1"
+                - "2"
+                - "3"
+              vnetSubnetReference:
+                name: "vnet-{{ .spec.clusterName }}"
+                subnetName: "subnet-aks"
+          
+          # Network Configuration
+          networkProfile:
+            networkPlugin: azure
+            networkPluginMode: overlay
+            networkPolicy: cilium
+            serviceCidr: "10.100.0.0/16"
+            dnsServiceIP: "10.100.0.10"
+          
+          # Security Profile
+          securityProfile:
+            workloadIdentity:
+              enabled: true
+            defender:
+              logAnalyticsWorkspaceResourceReference:
+                name: "log-analytics-{{ .spec.clusterName }}"
+          
+          # Auto-upgrade Profile
+          autoUpgradeProfile:
+            upgradeChannel: stable
+            nodeOSUpgradeChannel: NodeImage
+          
+          # Kubernetes Version
+          kubernetesVersion: "{{ .spec.advancedConfig.kubernetesVersion | default \"1.28.3\" }}"
+          
+          # Tags
+          tags:
+            environment: "dev"
+            nodePoolType: "{{ .spec.nodePoolType }}"
+            napEnabled: "{{ .spec.enableNAP }}"
+            clusterName: "{{ .spec.clusterName }}"
+    
+    # Log Analytics Workspace for monitoring
+    - id: log-analytics
+      template:
+        apiVersion: operationalinsights.azure.com/v1api20210601
+        kind: Workspace
+        metadata:
+          name: "log-analytics-{{ .spec.clusterName }}"
+          namespace: azure-system
+          annotations:
+            kro.run/dry-run: "{{ .spec.dryRun }}"
+        spec:
+          location: "{{ .spec.location }}"
+          owner:
+            name: "rg-{{ .spec.clusterName }}"
+          sku:
+            name: PerGB2018
+          retentionInDays: 30
+          tags:
+            clusterName: "{{ .spec.clusterName }}"
+    
+    # Container Insights Solution
+    - id: container-insights
+      template:
+        apiVersion: operationalinsights.azure.com/v1api20200801
+        kind: Solution
+        metadata:
+          name: "containerinsights-{{ .spec.clusterName }}"
+          namespace: azure-system
+          annotations:
+            kro.run/dry-run: "{{ .spec.dryRun }}"
+        spec:
+          location: "{{ .spec.location }}"
+          workspaceResourceReference:
+            name: "log-analytics-{{ .spec.clusterName }}"
+          plan:
+            name: ContainerInsights
+            publisher: Microsoft
+            product: "OMSGallery/ContainerInsights"
+          tags:
+            clusterName: "{{ .spec.clusterName }}"

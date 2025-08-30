@@ -1,0 +1,48 @@
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: at39473-weu-dev-prod
+  namespace: azure-system
+spec:
+  azureName: at39473-weu-dev-prod
+  location: uksouth
+---
+# /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourcegroups/dns/providers/Microsoft.ManagedIdentity/userAssignedIdentities/external-dns-identity
+
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: dns
+  namespace: azure-system
+spec:
+  azureName: dns
+  location: westeurope
+---
+# /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourcegroups/kv/providers/Microsoft.ManagedIdentity/userAssignedIdentities/external-secrets-uami
+
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: kv
+  namespace: azure-system
+spec:
+  azureName: kv
+  location: uksouth
+---
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: aso
+  namespace: azure-system
+spec:
+  azureName: aso
+  location: uksouth
+---
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: platform
+  namespace: azure-system
+spec:
+  azureName: platform
+  location: uksouth

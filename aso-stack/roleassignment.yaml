@@ -1,0 +1,118 @@
+apiVersion: authorization.azure.com/v1api20200801preview
+kind: RoleAssignment
+metadata:
+  name: dns-zone-contributor-dns
+  namespace: azure-system
+spec:
+  # This resource can be owner by any resource. In this example we've chosen a resource group for simplicity
+  owner:
+    name: dns
+    group: resources.azure.com
+    kind: ResourceGroup
+  # This is the Principal ID of the AAD identity to which the role will be assigned
+  principalIdFromConfig:
+    name: external-dns-identity-cm
+    key: principalId
+  roleDefinitionReference:
+    # This ARM ID represents "dns zone conrtibutor" - you can read about other built in roles here: https://docs.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
+    armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/providers/Microsoft.Authorization/roleDefinitions/befefa01-2a29-4197-83a8-272ff33ce314
+---
+
+# cert-manager-identity
+apiVersion: authorization.azure.com/v1api20200801preview
+kind: RoleAssignment
+metadata:
+  name: dns-zone-contributor-cert-manager-dns
+  namespace: azure-system
+spec:
+  # This resource can be owner by any resource. In this example we've chosen a resource group for simplicity
+  owner:
+    name: dns
+    group: resources.azure.com
+    kind: ResourceGroup
+  # This is the Principal ID of the AAD identity to which the role will be assigned
+  principalIdFromConfig:
+    name: cert-manager-identity-cm
+    key: principalId
+  roleDefinitionReference:
+    # This ARM ID represents "dns zone conrtibutor" - you can read about other built in roles here: https://docs.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
+    armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/providers/Microsoft.Authorization/roleDefinitions/befefa01-2a29-4197-83a8-272ff33ce314
+---
+apiVersion: authorization.azure.com/v1api20200801preview
+kind: RoleAssignment
+metadata:
+  name: aso-subscription-contributor
+  namespace: azure-system
+spec:
+  # ASO needs permissions at subscription level to manage all Azure resources
+  owner:
+    name: at39473-weu-dev-prod
+    group: resources.azure.com
+    kind: ResourceGroup
+  # This is the Principal ID of the ASO workload identity
+  principalIdFromConfig:
+    name: aso-identity-cm
+    key: principalId
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    # This ARM ID represents "Contributor" role - required for ASO to manage Azure resources
+    armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/providers/Microsoft.Authorization/roleDefinitions/b24988ac-6180-42a0-ab88-20f7382dd24c
+---
+apiVersion: authorization.azure.com/v1api20200801preview
+kind: RoleAssignment
+metadata:
+  name: aso-user-access-administrator
+  namespace: azure-system
+spec:
+  # ASO needs User Access Administrator to manage role assignments
+  owner:
+    name: at39473-weu-dev-prod
+    group: resources.azure.com
+    kind: ResourceGroup
+  principalIdFromConfig:
+    name: aso-identity-cm
+    key: principalId
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    # This ARM ID represents "User Access Administrator" - required for ASO to manage RBAC
+    armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/providers/Microsoft.Authorization/roleDefinitions/18d7d88d-d35e-4fb5-a5c3-7773c20a72d9
+---
+apiVersion: authorization.azure.com/v1api20200801preview
+kind: RoleAssignment
+metadata:
+  name: platform-api-cluster-admin
+  namespace: azure-system
+spec:
+  # AKS cluster needs permissions to manage RBAC for Platform API
+  owner:
+    name: at39473-weu-dev-prod
+    group: resources.azure.com
+    kind: ResourceGroup
+  # This is the Principal ID of the Platform API managed identity
+  principalIdFromConfig:
+    name: platform-api-identity-cm
+    key: principalId
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    # This ARM ID represents "Azure Kubernetes Service RBAC Cluster Admin" role
+    armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/providers/Microsoft.Authorization/roleDefinitions/b1ff04bb-8a4e-4dc4-8eb5-8693973ce19b
+---
+apiVersion: authorization.azure.com/v1api20200801preview
+kind: RoleAssignment
+metadata:
+  name: eso-subscription-contributor
+  namespace: azure-system
+spec:
+  # ASO needs permissions at subscription level to manage all Azure resources
+  owner:
+    name: at39473-weu-dev-prod
+    group: resources.azure.com
+    kind: ResourceGroup
+  # This is the Principal ID of the ASO workload identity
+  principalIdFromConfig:
+    name: eso-identity-cm
+    key: principalId
+  principalType: ServicePrincipal
+  roleDefinitionReference:
+    # This ARM ID represents "KV Contributor" role - required for ASO to manage Azure resources
+    armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/providers/Microsoft.Authorization/roleDefinitions/f25e0fa2-a7c8-4377-a976-54943a77a395

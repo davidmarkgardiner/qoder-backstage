@@ -1,0 +1,123 @@
+apiVersion: kubernetesconfiguration.azure.com/v1api20241101
+kind: FluxConfiguration
+metadata:
+  name: aso-flux
+  namespace: azure-system
+spec:
+  azureName: aso-flux
+  gitRepository:
+    provider: Generic
+    repositoryRef:
+      branch: feature/external-secrets
+    url: https://github.com/davidmarkgardiner/claude-aso
+  kustomizations:
+    # Layer 0: Configuration (Identity ConfigMaps for workload identity)
+    configuration:
+      path: ./apps/00-configuration
+      timeoutInSeconds: 60
+      syncIntervalInSeconds: 60
+      prune: true
+      force: true
+      wait: true
+      # healthChecks:
+      #   - apiVersion: v1
+      #     kind: ConfigMap
+      #     name: external-dns-identity-cm
+      #     namespace: azure-system
+      #   - apiVersion: v1
+      #     kind: ConfigMap
+      #     name: cert-manager-identity-cm
+      #     namespace: azure-system
+      #   - apiVersion: v1
+      #     kind: ConfigMap
+      #     name: platform-api-identity-cm
+      #     namespace: azure-system
+
+    # Layer 1: Infrastructure (Base operators and controllers)
+    infrastructure:
+      dependsOn: ["configuration"]
+      path: ./apps/01-infrastructure
+      timeoutInSeconds: 300
+      syncIntervalInSeconds: 120
+      prune: true
+      force: true
+      wait: true
+      healthChecks:
+        - apiVersion: apps/v1
+          kind: Deployment
+          name: external-secrets
+          namespace: external-secrets-system
+        - apiVersion: apps/v1
+          kind: Deployment
+          name: cert-manager
+          namespace: cert-manager
+        - apiVersion: apps/v1
+          kind: Deployment
+          name: external-dns
+          namespace: external-dns
+      # postBuild:
+      #   substituteFrom:
+      #     - kind: ConfigMap
+      #       name: external-dns-identity-cm
+      #     - kind: ConfigMap
+      #       name: cert-manager-identity-cm
+
+    # Layer 2: Configuration (Infrastructure configuration)
+    infrastructure-config:
+      dependsOn: ["infrastructure"]
+      path: ./apps/02-config
+      timeoutInSeconds: 180
+      syncIntervalInSeconds: 120
+      prune: true
+      force: true
+      wait: true
+      healthChecks:
+        - apiVersion: cert-manager.io/v1
+          kind: ClusterIssuer
+          name: letsencrypt-prod-dns01
+        - apiVersion: external-secrets.io/v1beta1
+          kind: ClusterSecretStore
+          name: azure-keyvault
+      # postBuild:
+      #   substituteFrom:
+      #     - kind: ConfigMap
+      #       name: cert-manager-identity-cm
+
+    # Layer 3: Platform (Platform services)
+    platform-services:
+      dependsOn: ["infrastructure-config"]
+      path: ./apps/03-platform
+      timeoutInSeconds: 300
+      syncIntervalInSeconds: 120
+      prune: true
+      force: true
+      wait: true
+      healthChecks:
+        - apiVersion: apps/v1
+          kind: Deployment
+          name: argo-server
+          namespace: argo
+        - apiVersion: apps/v1
+          kind: Deployment
+          name: platform-api
+          namespace: platform-system
+      postBuild:
+        substituteFrom:
+          - kind: ConfigMap
+            name: platform-api-identity-cm
+
+    # Layer 4: Applications (User applications and test workloads)
+    applications:
+      dependsOn: ["platform-services"]
+      path: ./apps/04-applications
+      timeoutInSeconds: 180
+      syncIntervalInSeconds: 120
+      prune: true
+      force: true
+      wait: true
+  namespace: flux-system
+  owner:
+    group: containerservice.azure.com
+    kind: ManagedCluster
+    name: uk8s-tsshared-weu-gt025-int-prod
+  sourceKind: GitRepository

@@ -1,0 +1,182 @@
+apiVersion: containerservice.azure.com/v1api20240402preview
+kind: ManagedCluster
+metadata:
+  name: uk8s-tsshared-weu-gt025-int-prod
+  namespace: azure-system
+spec:
+  azureName: uk8s-tsshared-weu-gt025-int-prod
+  location: uksouth
+  owner:
+    name: at39473-weu-dev-prod
+  operatorSpec:
+    configMaps:
+      oidcIssuerProfile:
+        name: aks-oidc-config-prod
+        key: issuer-url
+  dnsPrefix: uk8s-tsshared-weu-gt025-int-prodk8s
+  kubernetesVersion: "1.32"
+  linuxProfile:
+    adminUsername: localadmin
+    ssh:
+      publicKeys:
+        - keyData: ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQC6ACnIVTQEBTEjbxDAUIQVp8mrxwjmTEOXPx2W7GAMK/r8N66r8qEv51IPauNizNDmX8+Bg+kjPVXZh0ZNvGCKLyD/v/Oa2OzG54uw5HMeMbqn3v+dLtygr6wOFYFZuha93/yodfQdOZi2j0JPCH7+O5pVMiy8fyZF1R23rNbPdHUBbCcdgm3fbZZxfjhODfPrUyP5YVURpHmy3GL0Mq1Jcye51fB2ESBpOH3tp3JV6SsMtPcpxu/5VJkjg14BqKiW0JBOZZE9ujfnQVAYQI4mQOweGB9EpkqQp/lDe4+FtEuktV9jjbyxt7pzu/pwp8J0DhBuR08Wjw/+S9yWHCtLJw2Bz/Y9QtYDigc7KNCuGQQSJUGeJy/fd2Zdr53LyXlLJP3PK+PDJlaoLJUtNP+hxv5EJATN785ywOBB7KnB4kvU/ZZzwxfkvUi7GJCy7KGnShpfnTO/79oV5UYOOcScLSnIQznIqah7Cs0UEX7SRSCcrqpbfIZr4euzNhRBBx4NVptHZPv2OuwCeMFMJNDrY47MKsg0mE3R6S8WO1OCRZdvZdRxg2HnIicU2aqDYgvGV0VZmKjOgYKSlD27rLpLNoifjbc/ppym9nMc9MMqAGZ7Wx84XcvampwEcxinBkZi7mZHEu8wv6nQdcf3Cg5H4ETwYVQfwgvS7FLP/364tQ==
+  # Node provisioning with auto mode (NAP)
+  nodeProvisioningProfile:
+    mode: Auto
+  # Identity Configuration
+  identity:
+    type: UserAssigned
+    userAssignedIdentities:
+      - reference:
+          armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourceGroups/rg-my-aks-cluster/providers/Microsoft.ManagedIdentity/userAssignedIdentities/my-aks-cluster-control-plane-identity
+  # AAD and RBAC Configuration
+  aadProfile:
+    enableAzureRBAC: true
+    managed: true
+    adminGroupObjectIDs:
+      - 80f7067f-5b5b-4e80-84ae-af0d59b4e439
+  enableRBAC: true
+  disableLocalAccounts: false
+  # Network Profile
+  networkProfile:
+    networkPlugin: azure
+    networkPluginMode: overlay
+    networkPolicy: cilium
+    networkDataplane: cilium
+    serviceCidr: 10.251.0.0/17
+    dnsServiceIP: 10.251.0.10
+    podCidr: 10.251.128.0/17
+    ipFamilies: ["IPv4"]
+    loadBalancerSku: standard
+    outboundType: loadBalancer
+  # API Server Access
+  apiServerAccessProfile:
+    enablePrivateCluster: false
+    disableRunCommand: true
+  agentPoolProfiles:
+    - name: systempool
+      vnetSubnetReference:
+        armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourceGroups/aks-cluster/providers/Microsoft.Network/virtualNetworks/aks-vnet/subnets/aks-subnet
+      mode: System
+      count: 1
+      enableAutoScaling: false
+      # vmSize: Standard_D8s_v3 # Production
+      vmSize: Standard_B8ms # Dev/Test
+      availabilityZones: ["1"]
+      osDiskType: Managed
+      osDiskSizeGB: 128
+      osType: Linux
+      osSKU: AzureLinux
+      maxPods: 110
+      enableNodePublicIP: false
+      enableEncryptionAtHost: false
+      securityProfile:
+        enableSecureBoot: true
+        enableVTPM: true
+        # sshAccess: Disabled
+  identityProfile:
+    kubeletidentity:
+      clientId: 665d14f8-f74d-48b5-8fe9-fa1f53af551b
+      objectId: 9288aa4f-3395-4e37-898a-a693e05b187b
+      resourceReference:
+        armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourceGroups/rg-my-aks-cluster/providers/Microsoft.ManagedIdentity/userAssignedIdentities/my-aks-cluster-kubelet-identity
+  # Auto Upgrade Configuration
+  autoUpgradeProfile:
+    upgradeChannel: stable
+    nodeOSUpgradeChannel: NodeImage
+  # Security Profile
+  securityProfile:
+    defender:
+      logAnalyticsWorkspaceResourceReference:
+        armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourceGroups/aks-cluster/providers/Microsoft.OperationalInsights/workspaces/test-workspace
+      securityMonitoring:
+        enabled: true
+    workloadIdentity:
+      enabled: true
+    imageCleaner:
+      enabled: false
+      intervalHours: 48
+  # Storage Profile
+  storageProfile:
+    diskCSIDriver:
+      enabled: true
+    fileCSIDriver:
+      enabled: true
+    snapshotController:
+      enabled: true
+  # Addon Profiles
+  addonProfiles:
+    azureKeyvaultSecretsProvider:
+      enabled: true
+      config:
+        enableSecretRotation: "true" # pragma: allowlist secret
+        rotationPollInterval: "30m"
+    azurepolicy:
+      enabled: true
+      config:
+        version: "v2"
+  # Monitoring and Metrics
+  # azureMonitorProfile:
+  #   metrics:
+  #     enabled: true
+  #     kubeStateMetrics:
+  #       metricLabelsAllowlist: "namespaces=[owner, swID]"
+  #       metricAnnotationsAllowList: "pods=[k8s-annotation-1,k8s-annotation-n]"
+  #   # Container Insights Configuration
+  #   containerInsights:
+  #     enabled: false
+  # Cluster SKU and Support
+  sku:
+    name: Base
+    tier: Standard
+  supportPlan: KubernetesOfficial
+  # Workload Auto Scaler with KEDA
+  workloadAutoScalerProfile:
+    keda:
+      enabled: true
+  # OIDC Issuer - Required for workload identity
+  oidcIssuerProfile:
+    enabled: true
+  serviceMeshProfile:
+    mode: Istio
+    istio:
+      components:
+        ingressGateways:
+          - enabled: true
+            mode: Internal
+          - enabled: true
+            mode: External
+      revisions:
+        - asm-1-25
+  podIdentityProfile:
+    enabled: false
+    userAssignedIdentityExceptions:
+      - name: k8s-control-plane-exception
+        namespace: kube-system
+        podLabels:
+          kubernetes.azure.com/managedby: aks
+      - name: ubs-control-plane-exception
+        namespace: ubs-system
+        podLabels:
+          kubernetes.azure.com/managedby: aks
+  # Resource group for node resources
+  nodeResourceGroup: MC_at39473-weu-dev-prod_uk8s-tsshared-weu-gt025-int-prod_uksouth
+  # Service Principal Profile
+  servicePrincipalProfile:
+    clientId: msi
+  # Tags
+  tags:
+    environment: dev
+    project: uk8s
+    costCenter: BT-TS-INFRA-
+    managedBy: flux-system
+    billingReference: BT-TS-INFRA-
+    opEnvironment: EV
+    cmdbReference: AT39473
+    Owner: DavidGardiner
+    Status: InUse
+    Team: AKSEngineering
+    DeployedBy: AzureServiceOperator
+  privateLinkResources:
+    - reference:
+        armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourcegroups/AT39473-weu-dev-prod/providers/Microsoft.ContainerService/managedClusters/uk8s-tsshared-weu-gt025-int-prod/privateLinkResources/management
