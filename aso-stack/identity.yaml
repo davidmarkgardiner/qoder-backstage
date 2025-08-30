@@ -64,28 +64,28 @@ spec:
       tenantId:
         name: cert-manager-identity-cm
         key: tenantId
-# ---
-# apiVersion: managedidentity.azure.com/v1api20230131
-# kind: UserAssignedIdentity
-# metadata:
-#   name: aso-workload-identity
-#   namespace: azure-system
-# spec:
-#   azureName: aso-workload-identity
-#   location: uksouth
-#   owner:
-#     name: at39473-weu-dev-prod
-#   operatorSpec:
-#     configMaps:
-#       clientId:
-#         name: aso-identity-cm
-#         key: clientId
-#       principalId:
-#         name: aso-identity-cm
-#         key: principalId
-#       tenantId:
-#         name: aso-identity-cm
-#         key: tenantId
+---
+apiVersion: managedidentity.azure.com/v1api20230131
+kind: UserAssignedIdentity
+metadata:
+  name: aso-workload-identity
+  namespace: azure-system
+spec:
+  azureName: aso-workload-identity
+  location: uksouth
+  owner:
+    name: aso
+  operatorSpec:
+    configMaps:
+      clientId:
+        name: aso-identity-cm
+        key: clientId
+      principalId:
+        name: aso-identity-cm
+        key: principalId
+      tenantId:
+        name: aso-identity-cm
+        key: tenantId
 ---
 # /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/resourcegroups/kv/providers/Microsoft.ManagedIdentity/userAssignedIdentities/external-secrets-uami
 apiVersion: managedidentity.azure.com/v1api20230131

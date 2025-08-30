@@ -1,0 +1,79 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: demo-virtualservice
+  namespace: demo-app
+  labels:
+    app.kubernetes.io/name: demo-app
+    app.kubernetes.io/component: virtualservice
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "demo.davidmarkgardiner.co.uk"
+    external-dns.alpha.kubernetes.io/ttl: "300"
+spec:
+  hosts:
+  - "demo.davidmarkgardiner.co.uk"
+  gateways:
+  - demo-gateway
+  http:
+  # Health check endpoints
+  - match:
+    - uri:
+        prefix: "/healthz"
+    - uri:
+        prefix: "/readyz"
+    route:
+    - destination:
+        host: podinfo.demo-app.svc.cluster.local
+        port:
+          number: 9898
+    headers:
+      response:
+        add:
+          X-Demo-Health: "Active"
+    timeout: 10s
+    retries:
+      attempts: 3
+      perTryTimeout: 3s
+  
+  # API routes (for future expansion)
+  - match:
+    - uri:
+        prefix: "/api/"
+    route:
+    - destination:
+        host: podinfo.demo-app.svc.cluster.local
+        port:
+          number: 9898
+    headers:
+      request:
+        add:
+          X-Forwarded-Proto: "https"
+          X-Forwarded-Host: "demo.davidmarkgardiner.co.uk"
+      response:
+        add:
+          X-Demo-API: "Active"
+    timeout: 30s
+    retries:
+      attempts: 3
+      perTryTimeout: 10s
+  
+  # Main application routes
+  - match:
+    - uri:
+        prefix: "/"
+    route:
+    - destination:
+        host: podinfo.demo-app.svc.cluster.local
+        port:
+          number: 9898
+    headers:
+      response:
+        add:
+          X-Demo-App: "Active"
+          X-Frame-Options: "SAMEORIGIN"
+          X-Content-Type-Options: "nosniff"
+          Cache-Control: "no-cache, no-store, must-revalidate"
+    timeout: 30s
+    retries:
+      attempts: 2
+      perTryTimeout: 15s

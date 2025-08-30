@@ -7,6 +7,7 @@ const http = require('http');
 const clusterRoutes = require('./routes/clusters');
 const workflowRoutes = require('./routes/workflows');
 const azureRoutes = require('./routes/azure');
+const namespaceRoutes = require('./routes/namespaces');
 
 const app = express();
 const server = http.createServer(app);
@@ -27,6 +28,7 @@ app.get('/health', (req, res) => {
 app.use('/api/clusters', clusterRoutes);
 app.use('/api/workflows', workflowRoutes);
 app.use('/api/azure', azureRoutes);
+app.use('/api/namespaces', namespaceRoutes);
 
 // WebSocket connection handler
 wss.on('connection', (ws, req) => {

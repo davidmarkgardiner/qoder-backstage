@@ -9,7 +9,8 @@ import {
 import { 
   CloudUpload, 
   Dashboard, 
-  Storage 
+  Storage,
+  AccountTree
 } from '@mui/icons-material';
 
 const Navigation = () => {
@@ -21,10 +22,12 @@ const Navigation = () => {
       case '/':
       case '/onboarding':
         return 0;
-      case '/dashboard':
+      case '/namespaces':
         return 1;
-      case '/management':
+      case '/dashboard':
         return 2;
+      case '/management':
+        return 3;
       default:
         return 0;
     }
@@ -36,9 +39,12 @@ const Navigation = () => {
         navigate('/onboarding');
         break;
       case 1:
-        navigate('/dashboard');
+        navigate('/namespaces');
         break;
       case 2:
+        navigate('/dashboard');
+        break;
+      case 3:
         navigate('/management');
         break;
       default:
@@ -64,17 +70,24 @@ const Navigation = () => {
             data-testid="nav-onboarding"
           />
           <Tab
-            icon={<Dashboard />}
-            label="Workflow Dashboard"
+            icon={<AccountTree />}
+            label="Namespace Onboarding"
             id="tab-1"
             aria-controls="tabpanel-1"
+            data-testid="nav-namespaces"
+          />
+          <Tab
+            icon={<Dashboard />}
+            label="Workflow Dashboard"
+            id="tab-2"
+            aria-controls="tabpanel-2"
             data-testid="nav-dashboard"
           />
           <Tab
             icon={<Storage />}
             label="Cluster Management"
-            id="tab-2"
-            aria-controls="tabpanel-2"
+            id="tab-3"
+            aria-controls="tabpanel-3"
             data-testid="nav-management"
           />
         </Tabs>

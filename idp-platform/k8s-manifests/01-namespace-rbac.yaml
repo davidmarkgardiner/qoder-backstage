@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: idp-platform
+  labels:
+    name: idp-platform
+    app.kubernetes.io/name: idp-platform
+    app.kubernetes.io/component: platform
+    azure.workload.identity/use: "true"
+  annotations:
+    flux.weave.works/automated: "true"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: idp-backend-sa
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-backend
+    app.kubernetes.io/component: backend
+    azure.workload.identity/use: "true"
+  annotations:
+    # Add your federated identity client ID here if using Workload Identity
+    # azure.workload.identity/client-id: "your-workload-identity-client-id"
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: idp-backend-role
+  labels:
+    app.kubernetes.io/name: idp-backend
+    app.kubernetes.io/component: rbac
+rules:
+# Core Kubernetes resources
+- apiGroups: [""]
+  resources: ["pods", "services", "namespaces", "configmaps", "secrets", "events"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Apps resources
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Argo Workflows resources
+- apiGroups: ["argoproj.io"]
+  resources: ["workflows", "workflowtemplates", "cronworkflows", "workflowtaskresults", "clusterworkflowtemplates"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Azure Service Operator resources
+- apiGroups: ["resources.azure.com"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# KRO (Kubernetes Resource Orchestrator) resources
+- apiGroups: ["kro.run"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Custom Resource Definitions
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+# Networking resources for Istio integration
+- apiGroups: ["networking.istio.io"]
+  resources: ["virtualservices", "gateways", "destinationrules"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Certificate management
+- apiGroups: ["cert-manager.io"]
+  resources: ["certificates", "certificaterequests", "issuers", "clusterissuers"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Flux resources for GitOps integration
+- apiGroups: ["source.toolkit.fluxcd.io", "kustomize.toolkit.fluxcd.io", "helm.toolkit.fluxcd.io"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: idp-backend-binding
+  labels:
+    app.kubernetes.io/name: idp-backend
+    app.kubernetes.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: idp-backend-role
+subjects:
+- kind: ServiceAccount
+  name: idp-backend-sa
+  namespace: idp-platform
+---
+# Role for managing resources within the idp-platform namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: idp-namespace-admin
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-backend
+    app.kubernetes.io/component: rbac
+rules:
+- apiGroups: ["*"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: idp-namespace-admin-binding
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-backend
+    app.kubernetes.io/component: rbac
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: idp-namespace-admin
+subjects:
+- kind: ServiceAccount
+  name: idp-backend-sa
+  namespace: idp-platform

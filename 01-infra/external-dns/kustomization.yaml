@@ -1,0 +1,41 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: external-dns
+  # annotations:
+  #   config.kubernetes.io/local-config: "true"
+
+resources:
+  - namespace.yaml
+  - helmrepository.yaml
+  - helmrelease.yaml
+  - azure-secret.yaml
+  # - identity-values.yaml
+
+labels:
+- pairs:
+    app.kubernetes.io/name: external-dns
+    app.kubernetes.io/component: dns-management
+    app.kubernetes.io/version: "0.18.0"
+    app.kubernetes.io/managed-by: kustomize
+
+commonAnnotations:
+  platform.io/component: external-dns
+  platform.io/layer: infrastructure
+  platform.io/managed-by: platform-team
+
+# # Dynamic replacement of client ID from local identity ConfigMap
+# # Note: The identity-values.yaml ConfigMap must be populated with values
+# # from the ASO-managed ConfigMap in azure-system namespace
+# replacements:
+#   - source:
+#       kind: ConfigMap
+#       name: external-dns-local-identity
+#       fieldPath: data.clientId-dns
+#     targets:
+#       - select:
+#           kind: ServiceAccount
+#           name: external-dns
+#         fieldPaths:
+#           - metadata.annotations.[azure.workload.identity/client-id]

@@ -1,0 +1,125 @@
+apiVersion: orchestration/v1
+kind: Pipeline
+metadata:
+  name: aks-infrastructure-deployment
+  description: Complete AKS infrastructure deployment with testing and validation
+spec:
+  phases:
+    - name: infrastructure-provisioning
+      parallel: false
+      agents:
+        - name: aso-deployment-agent
+          timeout: 1800s
+          retries: 3
+          success_criteria:
+            - all_resources_ready
+            - cluster_accessible
+          outputs:
+            - kubeconfig
+            - cluster_endpoint
+            - resource_ids
+
+    - name: core-services
+      parallel: true
+      depends_on: infrastructure-provisioning
+      agents:
+        - name: cert-manager
+          timeout: 600s
+          config:
+            issuer: letsencrypt-staging
+            solver: dns01-azure
+        - name: external-dns
+          timeout: 600s
+          config:
+            provider: azure
+            zone: auto-detect
+            policy: sync
+
+    - name: service-mesh
+      parallel: false
+      depends_on: core-services
+      agents:
+        - name: istio-deployment-agent
+          timeout: 900s
+          config:
+            profile: production
+            components:
+              - istiod
+              - ingress-gateway
+              - observability
+
+    - name: application-deployment
+      parallel: false
+      depends_on: service-mesh
+      agents:
+        - name: app-deployment-agent
+          timeout: 600s
+          config:
+            namespace: production
+            injection: enabled
+            canary: true
+
+    - name: validation-testing
+      parallel: true
+      depends_on: application-deployment
+      agents:
+        - name: security-scanner
+          timeout: 1200s
+          critical: true
+        - name: test-automator
+          timeout: 900s
+          critical: true
+        - name: chaos-engineer
+          timeout: 1800s
+          critical: false
+
+    - name: documentation
+      parallel: true
+      depends_on: validation-testing
+      agents:
+        - name: sre-monitor
+          continuous: true
+        - name: documentation-engineer
+          timeout: 600s
+
+    - name: change-management
+      parallel: false
+      depends_on: documentation
+      agents:
+        - name: change-manager
+          timeout: 300s
+          manual_approval: true
+
+  error_handling:
+    strategy: fail-fast
+    support_agent: sre-debugger
+    max_retries: 3
+    backoff: exponential
+
+  notifications:
+    slack:
+      channel: "#infrastructure"
+      events:
+        - phase_complete
+        - error
+        - approval_needed
+    email:
+      recipients:
+        - sre-team@company.com
+      events:
+        - pipeline_complete
+        - critical_error
+
+  state_management:
+    backend: kubernetes-configmap
+    namespace: orchestration
+    git_sync:
+      enabled: true
+      repository: infrastructure-as-code
+      branch: main
+
+  success_criteria:
+    all_phases_complete: true
+    no_critical_errors: true
+    approval_received: true
+    documentation_generated: true

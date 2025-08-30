@@ -1,0 +1,66 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: idp-platform-source
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/name: idp-platform
+    app.kubernetes.io/component: source
+spec:
+  interval: 1m
+  url: https://github.com/your-org/qoder-backstage  # Update with your repo URL
+  ref:
+    branch: main
+  secretRef:
+    name: flux-system  # Use existing Flux credentials
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: idp-platform
+  namespace: flux-system
+  labels:
+    app.kubernetes.io/name: idp-platform
+    app.kubernetes.io/component: kustomization
+spec:
+  interval: 5m
+  path: "./idp-platform/k8s-manifests"
+  prune: true
+  wait: true
+  timeout: 10m
+  sourceRef:
+    kind: GitRepository
+    name: idp-platform-source
+  healthChecks:
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: idp-backend
+      namespace: idp-platform
+    - apiVersion: apps/v1
+      kind: Deployment
+      name: idp-frontend
+      namespace: idp-platform
+  dependsOn:
+    - name: infrastructure
+      namespace: flux-system
+  postBuild:
+    substitute:
+      DOMAIN: "idp.davidmarkgardiner.co.uk"
+      REGISTRY: "davidgardiner"
+      IMAGE_TAG: "latest"
+  patches:
+    - patch: |
+        - op: replace
+          path: /spec/template/spec/containers/0/image
+          value: ${REGISTRY}/idp-backend:${IMAGE_TAG}
+      target:
+        kind: Deployment
+        name: idp-backend
+    - patch: |
+        - op: replace
+          path: /spec/template/spec/containers/0/image
+          value: ${REGISTRY}/idp-frontend:${IMAGE_TAG}
+      target:
+        kind: Deployment
+        name: idp-frontend

@@ -4,6 +4,7 @@ import { AppBar, Toolbar, Typography, Container, Box } from '@mui/material';
 import ClusterOnboarding from './pages/ClusterOnboarding';
 import WorkflowDashboard from './pages/WorkflowDashboard';
 import ClusterManagement from './pages/ClusterManagement';
+import NamespaceOnboarding from './pages/NamespaceOnboarding';
 import Navigation from './components/Navigation';
 
 function App() {
@@ -23,6 +24,7 @@ function App() {
         <Routes>
           <Route path="/" element={<ClusterOnboarding />} />
           <Route path="/onboarding" element={<ClusterOnboarding />} />
+          <Route path="/namespaces" element={<NamespaceOnboarding />} />
           <Route path="/dashboard" element={<WorkflowDashboard />} />
           <Route path="/management" element={<ClusterManagement />} />
         </Routes>

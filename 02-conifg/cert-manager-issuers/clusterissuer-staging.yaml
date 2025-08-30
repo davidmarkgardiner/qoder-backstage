@@ -1,0 +1,31 @@
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging-dns01
+  labels:
+    component: cert-management
+    deployment-agent: cert-manager-engineer
+spec:
+  acme:
+    # The ACME staging server endpoint (for testing)
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: david@davidmarkgardiner.co.uk
+
+    # Name of a secret used to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-staging-dns01
+
+    # Enable the DNS-01 challenge provider
+    solvers:
+      - dns01:
+          azureDNS:
+            subscriptionID: "133d5755-4074-4d6e-ad38-eb2a6ad12903"
+            resourceGroupName: "dns"
+            hostedZoneName: "davidmarkgardiner.co.uk"
+            # Use Azure Workload Identity
+            managedIdentity:
+              clientID: "8c84cfba-2b8d-4ef0-b0b3-caeb8d2cd0c9"
+        selector:
+          dnsZones:
+            - "davidmarkgardiner.co.uk"
+            - "*.davidmarkgardiner.co.uk"

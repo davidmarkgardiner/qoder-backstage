@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo-app
+  labels:
+    istio-injection: enabled
+    platform.io/component: demo-application
+    app.kubernetes.io/name: demo-app

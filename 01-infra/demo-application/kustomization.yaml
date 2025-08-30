@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  annotations:
+    config.kubernetes.io/local-config: "true"
+    platform.io/description: User applications and test workloads
+  name: applications
+
+# Deploy last - user applications
+resources:
+- tests/
+
+labels:
+- pairs:
+    managed-by: flux
+    platform.io/component: applications
+    platform.io/layer: 04-applications

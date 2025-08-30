@@ -1,0 +1,25 @@
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-all-ingress
+  namespace: aks-istio-ingress
+spec:
+  selector:
+    matchLabels:
+      app: aks-istio-ingressgateway-internal
+  rules:
+  - {}
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-podinfo-access
+  namespace: test-dns
+spec:
+  selector:
+    matchLabels:
+      app: podinfo
+  rules:
+  - from:
+    - source:
+        namespaces: ["aks-istio-ingress"]

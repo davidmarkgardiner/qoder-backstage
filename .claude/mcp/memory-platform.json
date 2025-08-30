@@ -1,0 +1,124 @@
+{
+  "name": "memory-platform",
+  "description": "Memory service for Platform API patterns and lessons",
+  "type": "memory",
+  "config": {
+    "provider": "sqlite",
+    "database": "platform-api-memory.db",
+    "collections": [
+      {
+        "name": "platform-patterns",
+        "description": "Successful platform engineering patterns",
+        "schema": {
+          "pattern_name": "string",
+          "category": "string",
+          "implementation": "string",
+          "lessons_learned": "array",
+          "timestamp": "datetime"
+        }
+      },
+      {
+        "name": "service-templates",
+        "description": "Reusable service catalog templates",
+        "schema": {
+          "template_id": "string",
+          "name": "string",
+          "category": "string",
+          "parameters": "object",
+          "resources": "array",
+          "usage_count": "number"
+        }
+      },
+      {
+        "name": "namespace-configs",
+        "description": "Namespace provisioning configurations",
+        "schema": {
+          "namespace": "string",
+          "team": "string",
+          "environment": "string",
+          "tier": "string",
+          "features": "array",
+          "created_at": "datetime",
+          "status": "string"
+        }
+      },
+      {
+        "name": "rbac-patterns",
+        "description": "RBAC and multi-tenancy patterns",
+        "schema": {
+          "pattern_name": "string",
+          "roles": "array",
+          "bindings": "array",
+          "isolation_level": "string",
+          "use_cases": "array"
+        }
+      },
+      {
+        "name": "api-endpoints",
+        "description": "Platform API endpoint patterns",
+        "schema": {
+          "endpoint": "string",
+          "method": "string",
+          "description": "string",
+          "request_schema": "object",
+          "response_schema": "object",
+          "error_codes": "array"
+        }
+      },
+      {
+        "name": "troubleshooting",
+        "description": "Common issues and resolutions",
+        "schema": {
+          "issue": "string",
+          "symptoms": "array",
+          "root_cause": "string",
+          "resolution": "string",
+          "prevention": "string"
+        }
+      }
+    ]
+  },
+  "initialization": {
+    "seed_data": [
+      {
+        "collection": "platform-patterns",
+        "data": {
+          "pattern_name": "namespace-with-quotas",
+          "category": "provisioning",
+          "implementation": "Create namespace with ResourceQuota and LimitRange",
+          "lessons_learned": [
+            "Always set both requests and limits",
+            "Use tiered resource allocation (small/medium/large)",
+            "Include storage quotas to prevent PVC sprawl"
+          ],
+          "timestamp": "2025-08-10T10:00:00Z"
+        }
+      },
+      {
+        "collection": "service-templates",
+        "data": {
+          "template_id": "microservice-api",
+          "name": "Microservice API",
+          "category": "backend",
+          "parameters": {
+            "serviceName": "string",
+            "databaseType": "postgresql|mysql",
+            "replicas": 2
+          },
+          "resources": ["deployment", "service", "configmap", "secret"],
+          "usage_count": 0
+        }
+      },
+      {
+        "collection": "rbac-patterns",
+        "data": {
+          "pattern_name": "team-isolation",
+          "roles": ["developer", "admin", "viewer"],
+          "bindings": ["team-developer-binding", "team-admin-binding"],
+          "isolation_level": "namespace",
+          "use_cases": ["multi-tenant clusters", "team boundaries"]
+        }
+      }
+    ]
+  }
+}

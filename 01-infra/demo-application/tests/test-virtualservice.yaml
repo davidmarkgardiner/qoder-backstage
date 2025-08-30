@@ -1,0 +1,57 @@
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: podinfo-vs
+  namespace: test-dns
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: test-vs.davidmarkgardiner.co.uk
+    external-dns.alpha.kubernetes.io/ttl: "300"
+    external-dns.alpha.kubernetes.io/target: "10.251.76.226"  # Istio ingress gateway cluster IP
+spec:
+  hosts:
+  - test-vs.davidmarkgardiner.co.uk
+  gateways:
+  - test-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: podinfo.test-dns.svc.cluster.local
+        port:
+          number: 80
+      weight: 100
+    headers:
+      response:
+        add:
+          X-External-DNS-Test: "VirtualService-Routing"
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: podinfo-direct-vs
+  namespace: test-dns
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: podinfo.davidmarkgardiner.co.uk
+    external-dns.alpha.kubernetes.io/ttl: "300" 
+    external-dns.alpha.kubernetes.io/target: "10.251.76.226"  # Istio ingress gateway cluster IP
+spec:
+  hosts:
+  - podinfo.davidmarkgardiner.co.uk
+  gateways:
+  - test-gateway
+  http:
+  - match:
+    - uri:
+        prefix: /
+    route:
+    - destination:
+        host: podinfo.test-dns.svc.cluster.local
+        port:
+          number: 80
+      weight: 100
+    headers:
+      response:
+        add:
+          X-External-DNS-Direct: "Direct-VirtualService"

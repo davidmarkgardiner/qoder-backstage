@@ -1,0 +1,33 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: demo-gateway
+  namespace: demo-app
+  labels:
+    app.kubernetes.io/name: demo-app
+    app.kubernetes.io/component: gateway
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "demo.davidmarkgardiner.co.uk"
+    external-dns.alpha.kubernetes.io/ttl: "300"
+spec:
+  selector:
+    app: aks-istio-ingressgateway-external
+    istio: aks-istio-ingressgateway-external
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "demo.davidmarkgardiner.co.uk"
+    tls:
+      httpsRedirect: true
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: demo-wildcard-tls-cert
+    hosts:
+    - "demo.davidmarkgardiner.co.uk"

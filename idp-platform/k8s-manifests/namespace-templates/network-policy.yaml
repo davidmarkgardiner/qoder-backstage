@@ -1,0 +1,52 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: namespace-isolation
+  namespace: ${NAMESPACE_NAME}
+  labels:
+    app.kubernetes.io/managed-by: "idp-platform"
+    idp-platform/component: "network-policy"
+  annotations:
+    idp-platform/created-at: "${CREATED_AT}"
+    idp-platform/description: "Default deny-all with same-namespace and DNS exceptions"
+spec:
+  # Apply to all pods in namespace
+  podSelector: {}
+  
+  # Policy types to enforce
+  policyTypes:
+  - Ingress
+  - Egress
+  
+  # Ingress rules - only allow traffic from same namespace
+  ingress:
+  - from:
+    - podSelector: {} # Allow from any pod in the same namespace
+  
+  # Egress rules
+  egress:
+  # Allow to pods in same namespace
+  - to:
+    - podSelector: {} # Allow to any pod in the same namespace
+  
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53
+  
+  # Allow to CoreDNS in different namespace patterns
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+    - protocol: TCP
+      port: 53

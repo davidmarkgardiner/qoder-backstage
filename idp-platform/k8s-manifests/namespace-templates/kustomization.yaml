@@ -1,0 +1,46 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: namespace-templates
+  annotations:
+    config.kubernetes.io/local-config: "true"
+
+resources:
+- namespace.yaml
+- limit-range.yaml
+- network-policy.yaml
+
+# Variable replacements for templating
+replacements:
+- source:
+    kind: ConfigMap
+    name: namespace-config
+    fieldPath: data.namespaceName
+  targets:
+  - select:
+      kind: Namespace
+    fieldPaths:
+    - metadata.name
+  - select:
+      kind: LimitRange
+    fieldPaths:
+    - metadata.namespace
+  - select:
+      kind: NetworkPolicy
+    fieldPaths:
+    - metadata.namespace
+
+commonLabels:
+  app.kubernetes.io/managed-by: idp-platform
+  idp-platform/resource-type: namespace-onboarding
+
+# Default namespace labels
+patchesStrategicMerge:
+- |-
+  apiVersion: v1
+  kind: Namespace
+  metadata:
+    name: placeholder
+    labels:
+      idp-platform/provisioned: "true"
