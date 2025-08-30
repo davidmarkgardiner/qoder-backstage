@@ -382,314 +382,7 @@ class WorkflowService {
     );
   }
   
-  async executeWorkflow(workflowId) {
-    try {
-      const workflow = this.workflows.get(workflowId);
-      const steps = this.workflowSteps.get(workflowId);
-      
-      if (!workflow || !steps) {
-        throw new Error('Workflow or steps not found');
-      }
-      
-      this.addLog(workflowId, `Starting workflow: ${workflow.name}`, 'info');
-      
-      // Execute steps sequentially
-      for (const step of steps) {
-        await this.executeStep(workflowId, step);
-      }
-      
-      // Update workflow status
-      workflow.status = 'succeeded';
-      workflow.endTime = new Date();
-      this.workflows.set(workflowId, workflow);
-      
-      this.addLog(workflowId, `Workflow completed successfully`, 'info');
-      
-    } catch (error) {
-      console.error(`Workflow ${workflowId} failed:`, error);
-      const workflow = this.workflows.get(workflowId);
-      workflow.status = 'failed';
-      workflow.endTime = new Date();
-      workflow.error = error.message;
-      this.workflows.set(workflowId, workflow);
-      
-      this.addLog(workflowId, `Workflow failed: ${error.message}`, 'error');
-    }
-  }
-  
-  async executeStep(workflowId, step) {
-    const workflow = this.workflows.get(workflowId);
-    const steps = this.workflowSteps.get(workflowId);
-    
-    // Update step status
-    step.status = 'running';
-    step.startTime = new Date();
-    this.workflowSteps.set(workflowId, steps);
-    
-    this.addLog(workflowId, `Starting step: ${step.name}`, 'info');
-    
-    try {
-      switch (step.name) {
-        case 'validate-inputs':
-          await this.validateInputs(workflowId, workflow.parameters);
-          break;
-        case 'create-kro-instance':
-          await this.createKROInstance(workflowId, workflow.parameters);
-          break;
-        case 'apply-aso-resources':
-          await this.applyASOResources(workflowId, workflow.parameters);
-          break;
-        case 'wait-for-cluster':
-          if (!workflow.parameters.dryRun) {
-            await this.waitForCluster(workflowId, workflow.parameters);
-          } else {
-            this.addLog(workflowId, 'Skipping cluster wait (dry-run mode)', 'info');
-          }
-          break;
-        case 'configure-gitops':
-          if (!workflow.parameters.dryRun) {
-            await this.configureGitOps(workflowId, workflow.parameters);
-          } else {
-            this.addLog(workflowId, 'Skipping GitOps configuration (dry-run mode)', 'info');
-          }
-          break;
-        default:
-          this.addLog(workflowId, `Unknown step: ${step.name}`, 'warning');
-      }
-      
-      step.status = 'succeeded';
-      step.endTime = new Date();
-      this.addLog(workflowId, `Step completed: ${step.name}`, 'info');
-      
-    } catch (error) {
-      step.status = 'failed';
-      step.endTime = new Date();
-      step.error = error.message;
-      this.addLog(workflowId, `Step failed: ${step.name} - ${error.message}`, 'error');
-      throw error;
-    }
-    
-    this.workflowSteps.set(workflowId, steps);
-  }
-  
-  async validateInputs(workflowId, params) {
-    this.addLog(workflowId, 'Validating cluster configuration...', 'info');
-    
-    // Simulate validation delay
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    // Validate required parameters
-    if (!params.clusterName || !params.location || !params.nodePoolType) {
-      throw new Error('Missing required parameters');
-    }
-    
-    this.addLog(workflowId, 'Configuration validation passed', 'info');
-  }
-  
-  async createKROInstance(workflowId, params) {
-    this.addLog(workflowId, 'Creating KRO instance...', 'info');
-    
-    const kroInstance = {
-      apiVersion: 'kro.run/v1alpha1',
-      kind: 'AKSCluster',
-      metadata: {
-        name: params.clusterName,
-        namespace: 'default'
-      },
-      spec: {
-        location: params.location,
-        nodePoolType: params.nodePoolType,
-        enableNAP: params.enableNAP,
-        dryRun: params.dryRun
-      }
-    };
-    
-    if (params.dryRun) {
-      this.addLog(workflowId, 'DRY RUN: Would create KRO instance', 'info');
-      this.addLog(workflowId, JSON.stringify(kroInstance, null, 2), 'debug');
-    } else {
-      try {
-        await this.customApi.createNamespacedCustomObject(
-          'kro.run',
-          'v1alpha1',
-          'default',
-          'aksclusters',
-          kroInstance
-        );
-        this.addLog(workflowId, 'KRO instance created successfully', 'info');
-      } catch (error) {
-        if (error.response && error.response.statusCode === 409) {
-          this.addLog(workflowId, 'KRO instance already exists', 'warning');
-        } else {
-          throw error;
-        }
-      }
-    }
-  }
-  
-  async applyASOResources(workflowId, params) {
-    this.addLog(workflowId, 'Applying ASO resources...', 'info');
-    
-    if (params.dryRun) {
-      this.addLog(workflowId, 'DRY RUN: Would apply ASO manifests', 'info');
-      this.addLog(workflowId, 'Resources that would be created:', 'info');
-      this.addLog(workflowId, `- ResourceGroup: rg-${params.clusterName}`, 'info');
-      this.addLog(workflowId, `- ManagedCluster: ${params.clusterName}`, 'info');
-    } else {
-      // Apply actual ASO resources
-      await this.applyResourceGroup(workflowId, params);
-      await this.applyManagedCluster(workflowId, params);
-    }
-  }
-  
-  async applyResourceGroup(workflowId, params) {
-    const resourceGroup = {
-      apiVersion: 'resources.azure.com/v1api20200601',
-      kind: 'ResourceGroup',
-      metadata: {
-        name: `rg-${params.clusterName}`,
-        namespace: 'azure-system'
-      },
-      spec: {
-        location: params.location
-      }
-    };
-    
-    try {
-      await this.customApi.createNamespacedCustomObject(
-        'resources.azure.com',
-        'v1api20200601',
-        'azure-system',
-        'resourcegroups',
-        resourceGroup
-      );
-      this.addLog(workflowId, `ResourceGroup created: rg-${params.clusterName}`, 'info');
-    } catch (error) {
-      if (error.response && error.response.statusCode === 409) {
-        this.addLog(workflowId, 'ResourceGroup already exists', 'warning');
-      } else {
-        // Log detailed error information
-        this.addLog(workflowId, `Failed to create ResourceGroup: ${error.message}`, 'error');
-        if (error.response) {
-          this.addLog(workflowId, `HTTP Status: ${error.response.statusCode}`, 'error');
-          this.addLog(workflowId, `Response: ${JSON.stringify(error.response.body, null, 2)}`, 'error');
-        }
-        throw error;
-      }
-    }
-  }
-  
-  async applyManagedCluster(workflowId, params) {
-    const managedCluster = {
-      apiVersion: 'containerservice.azure.com/v1api20240402preview',
-      kind: 'ManagedCluster',
-      metadata: {
-        name: params.clusterName,
-        namespace: 'azure-system'
-      },
-      spec: {
-        location: params.location,
-        owner: {
-          name: `rg-${params.clusterName}`
-        },
-        dnsPrefix: `${params.clusterName}k8s`,
-        nodeProvisioningProfile: {
-          mode: params.enableNAP ? 'Auto' : 'Manual'
-        },
-        agentPoolProfiles: [{
-          name: 'systempool',
-          mode: 'System',
-          count: 1,
-          vmSize: this.getVMSizeForNodePoolType(params.nodePoolType),
-          enableAutoScaling: params.enableNAP ? false : true, // NAP and agent pool auto-scaling are mutually exclusive
-          minCount: params.enableNAP ? undefined : 1,
-          maxCount: params.enableNAP ? undefined : 3,
-          osDiskType: 'Managed',
-          osDiskSizeGB: 64,
-          osType: 'Linux',
-          maxPods: 110
-        }],
-        networkProfile: {
-          networkPlugin: 'azure',
-          networkPluginMode: 'overlay',
-          serviceCidr: '10.0.0.0/16',
-          dnsServiceIP: '10.0.0.10',
-          podCidr: '10.1.0.0/16',
-          loadBalancerSku: 'standard',
-          outboundType: 'loadBalancer'
-        },
-        identity: {
-          type: 'SystemAssigned'
-        },
-        enableRBAC: true,
-        sku: {
-          name: 'Base',
-          tier: 'Free'
-        },
-        kubernetesVersion: params.advancedConfig?.kubernetesVersion || '1.30',
-        tags: {
-          environment: 'development',
-          createdBy: 'idp-platform',
-          clusterName: params.clusterName
-        }
-      }
-    };
-    
-    try {
-      await this.customApi.createNamespacedCustomObject(
-        'containerservice.azure.com',
-        'v1api20240402preview',
-        'azure-system',
-        'managedclusters',
-        managedCluster
-      );
-      this.addLog(workflowId, `ManagedCluster created: ${params.clusterName}`, 'info');
-    } catch (error) {
-      if (error.response && error.response.statusCode === 409) {
-        this.addLog(workflowId, 'ManagedCluster already exists', 'warning');
-      } else {
-        // Log detailed error information
-        this.addLog(workflowId, `Failed to create ManagedCluster: ${error.message}`, 'error');
-        if (error.response) {
-          this.addLog(workflowId, `HTTP Status: ${error.response.statusCode}`, 'error');
-          this.addLog(workflowId, `Response: ${JSON.stringify(error.response.body, null, 2)}`, 'error');
-        }
-        throw error;
-      }
-    }
-  }
-  
-  getVMSizeForNodePoolType(nodePoolType) {
-    const vmSizeMap = {
-      'standard': 'Standard_DS2_v2',
-      'memory-optimized': 'Standard_E2s_v3',
-      'compute-optimized': 'Standard_F2s_v2'
-    };
-    return vmSizeMap[nodePoolType] || 'Standard_DS2_v2';
-  }
-  
-  async waitForCluster(workflowId, params) {
-    this.addLog(workflowId, 'Waiting for cluster to be ready...', 'info');
-    
-    // In a real implementation, this would poll the cluster status
-    // For demo purposes, we'll simulate the wait
-    for (let i = 0; i < 5; i++) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      this.addLog(workflowId, `Checking cluster status... (${i + 1}/5)`, 'info');
-    }
-    
-    this.addLog(workflowId, 'Cluster is ready!', 'info');
-  }
-  
-  async configureGitOps(workflowId, params) {
-    this.addLog(workflowId, 'Configuring GitOps with Flux...', 'info');
-    
-    // Simulate GitOps configuration
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    this.addLog(workflowId, 'GitOps configuration completed', 'info');
-  }
-  
+  // Utility methods
   addLog(workflowId, message, level = 'info') {
     const logs = this.workflowLogs.get(workflowId) || [];
     logs.push({
@@ -707,6 +400,22 @@ class WorkflowService {
       throw new Error('Workflow not found');
     }
     
+    // Try to delete the Argo Workflow if it exists
+    if (workflow.argoWorkflowName) {
+      try {
+        await this.customApi.deleteNamespacedCustomObject(
+          this.argoApiGroup,
+          this.argoApiVersion,
+          this.argoNamespace,
+          'workflows',
+          workflow.argoWorkflowName
+        );
+        this.addLog(workflowId, `Argo Workflow ${workflow.argoWorkflowName} deleted`, 'info');
+      } catch (error) {
+        console.error(`Failed to delete Argo Workflow: ${error.message}`);
+      }
+    }
+    
     workflow.status = 'aborted';
     workflow.endTime = new Date();
     workflow.abortReason = reason;
@@ -717,22 +426,91 @@ class WorkflowService {
     return workflow;
   }
   
-  async retryWorkflow(workflowId, fromStep) {
+  async retryWorkflow(workflowId) {
     const workflow = this.workflows.get(workflowId);
     if (!workflow) {
       throw new Error('Workflow not found');
     }
     
+    // Create a new Argo Workflow for retry
+    const originalName = workflow.argoWorkflowName;
+    workflow.argoWorkflowName = `${originalName}-retry-${Date.now()}`;
     workflow.status = 'running';
     workflow.retryCount = (workflow.retryCount || 0) + 1;
+    workflow.startTime = new Date();
+    workflow.endTime = null;
+    workflow.error = null;
     
     this.workflows.set(workflowId, workflow);
     this.addLog(workflowId, `Workflow retry initiated (retry #${workflow.retryCount})`, 'info');
     
-    // Restart workflow execution
-    this.executeWorkflow(workflowId);
+    // Create new Argo Workflow
+    try {
+      if (workflow.type === 'cluster-provisioning') {
+        await this.createArgoWorkflow(workflow);
+      } else if (workflow.type === 'cluster-deletion') {
+        await this.createArgoClusterDeletionWorkflow(workflow);
+      } else if (workflow.type === 'namespace-provisioning') {
+        await this.createArgoNamespaceWorkflow(workflow);
+      }
+      this.addLog(workflowId, `Retry Argo Workflow ${workflow.argoWorkflowName} created successfully`, 'info');
+    } catch (error) {
+      this.addLog(workflowId, `Failed to create retry Argo Workflow: ${error.message}`, 'error');
+      workflow.status = 'failed';
+      workflow.error = error.message;
+      this.workflows.set(workflowId, workflow);
+    }
     
     return workflow;
+  }
+  
+  async createArgoNamespaceWorkflow(workflow) {
+    const argoWorkflowManifest = {
+      apiVersion: 'argoproj.io/v1alpha1',
+      kind: 'Workflow',
+      metadata: {
+        name: workflow.argoWorkflowName,
+        namespace: this.argoNamespace,
+        labels: {
+          'idp.platform/workflow-id': workflow.id,
+          'idp.platform/workflow-type': workflow.type,
+          'idp.platform/namespace-name': workflow.namespaceName
+        }
+      },
+      spec: {
+        workflowTemplateRef: {
+          name: 'namespace-provisioning'
+        },
+        arguments: {
+          parameters: [
+            {
+              name: 'namespace-name',
+              value: workflow.parameters.namespaceName
+            },
+            {
+              name: 'resource-limits-cpu',
+              value: workflow.parameters.resourceLimits?.cpu || '1'
+            },
+            {
+              name: 'resource-limits-memory',
+              value: workflow.parameters.resourceLimits?.memory || '2Gi'
+            },
+            {
+              name: 'network-isolated',
+              value: workflow.parameters.networkIsolated?.toString() || 'false'
+            }
+          ]
+        }
+      }
+    };
+    
+    await this.customApi.createNamespacedCustomObject(
+      this.argoApiGroup,
+      this.argoApiVersion,
+      this.argoNamespace,
+      'workflows',
+      argoWorkflowManifest
+    );
   }
 
   async startNamespaceProvisioningWorkflow(params) {
@@ -744,6 +522,8 @@ class WorkflowService {
       networkIsolated
     } = params;
     
+    const argoWorkflowName = `namespace-provisioning-${namespaceName}-${workflowId.substring(0, 8)}`;
+    
     const workflow = {
       id: workflowId,
       name: `namespace-provisioning-${namespaceName}`,
@@ -751,6 +531,7 @@ class WorkflowService {
       status: 'running',
       namespaceName,
       startTime: new Date(),
+      argoWorkflowName,
       parameters: {
         namespaceName,
         resourceLimits,
@@ -776,8 +557,16 @@ class WorkflowService {
     this.workflowSteps.set(workflowId, steps);
     this.workflowLogs.set(workflowId, []);
     
-    // Start the workflow execution
-    this.executeNamespaceWorkflow(workflowId);
+    // Create actual Argo Workflow for namespace provisioning
+    try {
+      await this.createArgoNamespaceWorkflow(workflow);
+      this.addLog(workflowId, `Argo Workflow ${argoWorkflowName} created successfully`, 'info');
+    } catch (error) {
+      this.addLog(workflowId, `Failed to create Argo Workflow: ${error.message}`, 'error');
+      workflow.status = 'failed';
+      workflow.error = error.message;
+      this.workflows.set(workflowId, workflow);
+    }
     
     return workflow;
   }
