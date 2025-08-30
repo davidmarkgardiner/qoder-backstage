@@ -58,6 +58,28 @@ npm run test:setup                # Start both frontend and backend concurrently
 kubectl apply -k .
 ```
 
+### Karpenter Workflow Commands
+
+```bash
+# Enable Karpenter workflow (feature flag)
+export USE_KARPENTER_WORKFLOW=true
+
+# Validate Karpenter migration
+./idp-platform/scripts/validate-karpenter-migration.sh
+
+# Monitor Karpenter performance
+./idp-platform/scripts/monitor-karpenter.sh
+
+# Validate on minikube (simulation mode)
+./validate-minikube-karpenter.sh
+
+# Apply Karpenter workflow templates
+kubectl apply -f idp-platform/k8s-manifests/argo-workflows/aks-cluster-provisioning-aso-karpenter.yaml
+
+# Apply Karpenter resource templates
+kubectl apply -f idp-platform/k8s-manifests/karpenter/
+```
+
 ## Architecture Overview
 
 ### Core Components
@@ -82,18 +104,30 @@ kubectl apply -k .
 
 ### Data Flow Architecture
 
+**Current (Karpenter-enabled) - Default for new clusters:**
 1. **User Input** → React frontend captures cluster configuration
 2. **API Processing** → Backend validates and processes requests via Express routes
+3. **Workflow Creation** → Argo Workflows created with user parameters
+4. **Direct Provisioning** → ASO creates AKS cluster + Karpenter manages nodes
+5. **Azure Provisioning** → ASO creates actual Azure infrastructure
+6. **Status Updates** → Real-time updates via WebSocket to frontend
+
+**Legacy (KRO-based) - Maintained for compatibility:**
+1. **User Input** → React frontend captures cluster configuration
+2. **API Processing** → Backend validates and processes requests via Express routes  
 3. **Workflow Creation** → Argo Workflows created with user parameters
 4. **Resource Composition** → KRO (Kubernetes Resource Orchestrator) generates Azure resources
 5. **Azure Provisioning** → ASO creates actual Azure infrastructure
 6. **Status Updates** → Real-time updates via WebSocket to frontend
 
+> **Migration Status**: Use `USE_KARPENTER_WORKFLOW=true` to enable the new direct ASO + Karpenter integration
+
 ### Key Integration Points
 
 - **Argo Workflows**: Orchestrates cluster provisioning workflows
 - **Azure Service Operator (ASO)**: Manages Azure resources from Kubernetes
-- **KRO**: Provides resource composition and templating
+- **Karpenter**: Advanced node autoscaling and provisioning (default for new clusters)
+- **KRO**: Legacy resource composition and templating (maintained for compatibility)
 - **Flux**: Handles GitOps-based application deployment
 - **Istio**: Service mesh integration with ingress gateway
 - **Workload Identity**: Secure pod-to-Azure authentication
@@ -116,12 +150,78 @@ qoder-backstage/
 │   │   ├── models/              # Data models and schemas
 │   │   └── middleware/          # Express middleware
 │   ├── k8s-manifests/           # Kubernetes deployment manifests
+│   │   ├── argo-workflows/      # Argo Workflow templates
+│   │   └── karpenter/           # Karpenter resource templates
 │   └── scripts/                 # Setup and utility scripts
 ├── aso-stack/                   # Azure Service Operator manifests
 │   ├── *.yaml                   # Infrastructure as Code definitions
 │   └── kustomization.yaml      # Resource ordering configuration
+├── validate-minikube-karpenter.sh  # Minikube validation script
+├── IDP-WORKFLOW-MIGRATION-COMPLETE.md  # Migration summary
 └── .qoder/                      # Development quests and documentation
 ```
+
+## Karpenter Integration
+
+### Overview
+The IDP platform has been migrated from KRO (Kubernetes Resource Orchestrator) to direct ASO + Karpenter integration for improved node autoscaling and cost optimization.
+
+### Node Pool Types
+The platform supports 4 optimized node pool configurations:
+
+1. **Standard** (General Purpose)
+   - VMs: `Standard_DS2_v2`, `Standard_DS3_v2`
+   - CPU Limit: 1000 cores, Memory: 1000Gi
+   - Use Cases: Web apps, microservices, general workloads
+
+2. **Memory-Optimized** (High Memory)  
+   - VMs: `Standard_E4s_v3`, `Standard_E8s_v3`
+   - CPU Limit: 2000 cores, Memory: 4000Gi
+   - Use Cases: Databases, caching, in-memory processing
+
+3. **Compute-Optimized** (High CPU)
+   - VMs: `Standard_F4s_v2`, `Standard_F8s_v2` 
+   - CPU Limit: 4000 cores, Memory: 2000Gi
+   - Use Cases: CPU-intensive applications, compute workloads
+
+4. **Spot-Optimized** (Cost-Effective)
+   - Mixed VM types with spot instances
+   - CPU Limit: 1000 cores, Memory: 1000Gi
+   - Use Cases: Batch processing, fault-tolerant workloads
+
+### Key Components
+
+**AKSNodeClass** (`idp-platform/k8s-manifests/karpenter/aksnode-class-template.yaml`):
+- Azure-specific node configuration
+- VM instance types and OS disk settings
+- Custom userData for node initialization
+- Resource group and subnet configuration
+
+**NodePool** (`idp-platform/k8s-manifests/karpenter/nodepool-template.yaml`):
+- Node pool scaling policies and limits
+- Disruption settings (consolidation, expiration)
+- Taints and requirements for workload placement
+- Cost optimization through spot instances
+
+**Workflow Template** (`aks-cluster-provisioning-aso-karpenter.yaml`):
+- 8-phase DAG for cluster provisioning
+- Direct ASO ManagedCluster creation
+- Karpenter resource deployment
+- Dry-run support for testing
+
+### Backend Configuration
+In `workflowService.js`, the `NODE_POOL_CONFIGURATIONS` object centralizes all node pool settings:
+- VM size mappings and SKU families
+- Resource limits and recommendations  
+- Karpenter-specific parameters
+
+### Feature Flag Migration
+Use `USE_KARPENTER_WORKFLOW=true` to enable:
+- New direct ASO + Karpenter workflows
+- Advanced node autoscaling capabilities
+- Simplified architecture (no KRO layer)
+
+Legacy KRO workflows remain functional when flag is `false` for gradual migration.
 
 ## Critical Configuration Notes
 
@@ -132,11 +232,15 @@ The frontend is configured to proxy API calls to `http://localhost:3001`. For pr
 - **Backend**: `PORT=3001`, `NODE_ENV=development`
 - **Kubernetes**: `KUBE_CONTEXT=minikube`, namespace configurations for Azure, Argo
 - **Azure**: Region, Kubernetes version, monitoring settings in ASO manifests
+- **Karpenter Migration**: `USE_KARPENTER_WORKFLOW=true` (enables new workflow, default: false)
+- **Testing**: `DRY_RUN=true` (for testing without creating Azure resources)
 
 ### Security Considerations
-- RBAC permissions required for Argo Workflows and ASO
+- RBAC permissions required for Argo Workflows, ASO, and Karpenter
+- Service account `idp-backend-sa` required for workflow execution
 - Workload Identity integration for pod-to-Azure authentication
 - Private AKS cluster configuration with controlled access
+- Karpenter requires proper Azure RBAC for node provisioning
 
 ## Code Quality Requirements
 
@@ -155,9 +259,35 @@ Fix any diagnostics issues before considering the task complete.
 
 ## Troubleshooting Common Issues
 
-- **RBAC Errors**: Apply `k8s-manifests/argo-workflows/rbac-fix.yaml`
+### General Issues
 - **Backend Connection**: Verify backend is running on port 3001
-- **Workflow Failures**: Check logs via `kubectl logs <workflow-pod> -c main`
 - **Image Pull Issues**: Verify image availability in configured registry
+
+### RBAC Issues  
+- **Workflow Permission Errors**: Check service account `idp-backend-sa` exists and has proper ClusterRole binding
+- **Karpenter RBAC**: Ensure ClusterRole includes `karpenter.sh` and `karpenter.azure.com` permissions
+- **Service Account**: Workflows must use `serviceAccountName: idp-backend-sa`
+
+### Karpenter-Specific Issues
+- **Karpenter CRDs Missing**: Check if running on minikube (CRDs only available in AKS)
+  ```bash
+  kubectl api-resources | grep karpenter
+  ```
+- **Node Pool Creation Fails**: Verify Karpenter is installed in target cluster
+- **Workflow Template Not Found**: Apply Karpenter workflow template:
+  ```bash
+  kubectl apply -f idp-platform/k8s-manifests/argo-workflows/aks-cluster-provisioning-aso-karpenter.yaml
+  ```
+
+### Environment Detection
+- **Cluster Type**: Use `validate-minikube-karpenter.sh` for minikube testing
+- **Feature Flag**: Set `USE_KARPENTER_WORKFLOW=true` to enable new workflows
+- **Dry Run Mode**: Use `DRY_RUN=true` for testing without Azure resource creation
+
+### Workflow Debugging
+- **Check Workflow Status**: `kubectl get workflows -n <namespace>`
+- **View Workflow Logs**: `kubectl logs -l workflows.argoproj.io/workflow=<workflow-name>`
+- **Monitor Resources**: Use `./idp-platform/scripts/monitor-karpenter.sh`
+- **Validate Migration**: Run `./idp-platform/scripts/validate-karpenter-migration.sh`
 
 The platform emphasizes self-service capabilities, real-time monitoring, and GitOps-based deployment patterns for enterprise AKS cluster management.

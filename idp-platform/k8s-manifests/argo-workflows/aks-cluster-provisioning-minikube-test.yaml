@@ -1,0 +1,316 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: aks-cluster-provisioning-minikube-test
+  namespace: default
+  labels:
+    app.kubernetes.io/name: aks-cluster-provisioning-minikube-test
+    app.kubernetes.io/component: workflow-template
+    app.kubernetes.io/managed-by: idp-platform
+  annotations:
+    workflows.argoproj.io/description: |
+      Minikube-compatible test template for validating workflow structure without Azure/Karpenter dependencies
+    workflows.argoproj.io/maintainer: IDP Platform Team
+    workflows.argoproj.io/tags: testing,minikube,validation,dry-run
+spec:
+  entrypoint: test-cluster-provisioning
+  serviceAccountName: idp-backend-sa
+  
+  # Workflow arguments - same as production but for testing
+  arguments:
+    parameters:
+    - name: cluster-name
+      description: "Name of the test cluster"
+      value: "minikube-test-cluster"
+    - name: location
+      description: "Simulated Azure region"
+      value: "eastus"
+    - name: node-pool-type
+      description: "Type of node pool (standard, memory-optimized, compute-optimized)"
+      value: "standard"
+    - name: enable-nap
+      description: "Simulate Node Auto Provisioning"
+      value: "true"
+    - name: dry-run
+      description: "Always true for minikube testing"
+      value: "true"
+    - name: kubernetes-version
+      description: "Kubernetes version"
+      value: "1.28.3"
+    - name: primary-vm-size
+      description: "Primary VM size (simulated)"
+      value: "Standard_DS2_v2"
+    - name: secondary-vm-size
+      description: "Secondary VM size (simulated)"
+      value: "Standard_DS3_v2"
+    - name: sku-family
+      description: "SKU family (simulated)"
+      value: "D"
+    - name: max-cpu
+      description: "Maximum CPU limit (simulated)"
+      value: "1000"
+    - name: max-memory
+      description: "Maximum memory limit (simulated)"
+      value: "1000Gi"
+    - name: system-vm-size
+      description: "System VM size (simulated)"
+      value: "Standard_B2s"
+
+  templates:
+  # Main DAG - simplified for minikube testing
+  - name: test-cluster-provisioning
+    dag:
+      tasks:
+      - name: validate-inputs
+        template: validate-cluster-config
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: node-pool-type
+            value: "{{workflow.parameters.node-pool-type}}"
+            
+      - name: simulate-resource-group
+        template: simulate-resource-group-step
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+        dependencies: [validate-inputs]
+        
+      - name: simulate-managed-cluster
+        template: simulate-managed-cluster-step
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: kubernetes-version
+            value: "{{workflow.parameters.kubernetes-version}}"
+          - name: system-vm-size
+            value: "{{workflow.parameters.system-vm-size}}"
+          - name: enable-nap
+            value: "{{workflow.parameters.enable-nap}}"
+        dependencies: [simulate-resource-group]
+        
+      - name: simulate-node-configuration
+        template: simulate-node-config-step
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: node-pool-type
+            value: "{{workflow.parameters.node-pool-type}}"
+          - name: primary-vm-size
+            value: "{{workflow.parameters.primary-vm-size}}"
+          - name: secondary-vm-size
+            value: "{{workflow.parameters.secondary-vm-size}}"
+          - name: max-cpu
+            value: "{{workflow.parameters.max-cpu}}"
+          - name: max-memory
+            value: "{{workflow.parameters.max-memory}}"
+        dependencies: [simulate-managed-cluster]
+        
+      - name: validate-workflow-completion
+        template: validate-completion-step
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+        dependencies: [simulate-node-configuration]
+
+  # Validation template
+  - name: validate-cluster-config
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: node-pool-type
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "🧪 MINIKUBE TEST: Validating cluster configuration..."
+        echo "Cluster name: {{inputs.parameters.cluster-name}}"
+        echo "Location: {{inputs.parameters.location}}"
+        echo "Node pool type: {{inputs.parameters.node-pool-type}}"
+
+        # Validate cluster name format
+        if ! echo "{{inputs.parameters.cluster-name}}" | grep -qE '^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$'; then
+          echo "❌ ERROR: Invalid cluster name format"
+          exit 1
+        fi
+
+        # Validate node pool type
+        case "{{inputs.parameters.node-pool-type}}" in
+          standard|memory-optimized|compute-optimized|spot-optimized)
+            echo "✅ Node pool type validation passed"
+            ;;
+          *)
+            echo "❌ ERROR: Invalid node pool type. Must be: standard, memory-optimized, compute-optimized, or spot-optimized"
+            exit 1
+            ;;
+        esac
+
+        echo "✅ Cluster configuration validation completed successfully"
+
+  # Simulate ResourceGroup creation
+  - name: simulate-resource-group-step
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "🧪 MINIKUBE TEST: Simulating Azure Resource Group creation..."
+        echo "Resource Group: rg-{{inputs.parameters.cluster-name}}"
+        echo "Location: {{inputs.parameters.location}}"
+        
+        # Simulate resource group manifest generation
+        cat <<EOF
+        📄 Would create ResourceGroup manifest:
+        ---
+        apiVersion: resources.azure.com/v1api20200601
+        kind: ResourceGroup
+        metadata:
+          name: rg-{{inputs.parameters.cluster-name}}
+          namespace: azure-system
+        spec:
+          location: "{{inputs.parameters.location}}"
+          tags:
+            environment: "test"
+            createdBy: "minikube-test"
+            clusterName: "{{inputs.parameters.cluster-name}}"
+        EOF
+        
+        echo "✅ ResourceGroup simulation completed"
+
+  # Simulate ManagedCluster creation  
+  - name: simulate-managed-cluster-step
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: kubernetes-version
+      - name: system-vm-size
+      - name: enable-nap
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "🧪 MINIKUBE TEST: Simulating AKS ManagedCluster creation..."
+        echo "Cluster: {{inputs.parameters.cluster-name}}"
+        echo "Kubernetes Version: {{inputs.parameters.kubernetes-version}}"
+        echo "NAP Enabled: {{inputs.parameters.enable-nap}}"
+        
+        # Simulate cluster configuration
+        cat <<EOF
+        📄 Would create ManagedCluster with configuration:
+        - System Node Pool: {{inputs.parameters.system-vm-size}}
+        - Network Plugin: azure (with overlay)
+        - Network Policy: cilium
+        - RBAC: enabled
+        - Workload Identity: enabled
+        - NAP Mode: $([[ "{{inputs.parameters.enable-nap}}" == "true" ]] && echo "Auto" || echo "Manual")
+        EOF
+        
+        echo "✅ ManagedCluster simulation completed"
+
+  # Simulate Node Configuration (Karpenter equivalent)
+  - name: simulate-node-config-step
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: node-pool-type
+      - name: primary-vm-size
+      - name: secondary-vm-size
+      - name: max-cpu
+      - name: max-memory
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "🧪 MINIKUBE TEST: Simulating node pool configuration..."
+        echo "Node Pool Type: {{inputs.parameters.node-pool-type}}"
+        echo "Primary VM: {{inputs.parameters.primary-vm-size}}"
+        echo "Secondary VM: {{inputs.parameters.secondary-vm-size}}"
+        
+        # Simulate different node pool configurations
+        case "{{inputs.parameters.node-pool-type}}" in
+          standard)
+            echo "📊 Standard Node Pool Configuration:"
+            echo "  - General purpose workloads"
+            echo "  - Balanced CPU/Memory ratio"
+            echo "  - Cost-effective for most applications"
+            ;;
+          memory-optimized)
+            echo "📊 Memory-Optimized Node Pool Configuration:"
+            echo "  - High memory workloads"
+            echo "  - Databases and caching"
+            echo "  - In-memory processing"
+            ;;
+          compute-optimized)
+            echo "📊 Compute-Optimized Node Pool Configuration:"
+            echo "  - CPU-intensive workloads"
+            echo "  - High-performance computing"
+            echo "  - Batch processing"
+            ;;
+          spot-optimized)
+            echo "📊 Spot-Optimized Node Pool Configuration:"
+            echo "  - Cost-effective spot instances"
+            echo "  - Fault-tolerant workloads"
+            echo "  - Batch processing"
+            ;;
+        esac
+        
+        cat <<EOF
+        📄 Would configure node pool with:
+        - Resource Limits: CPU={{inputs.parameters.max-cpu}}, Memory={{inputs.parameters.max-memory}}
+        - VM Sizes: {{inputs.parameters.primary-vm-size}}, {{inputs.parameters.secondary-vm-size}}
+        - Taints: {{inputs.parameters.node-pool-type}}=true:NoSchedule
+        - Disruption Policy: WhenEmpty with 30s consolidation
+        EOF
+        
+        echo "✅ Node configuration simulation completed"
+
+  # Validation completion
+  - name: validate-completion-step
+    inputs:
+      parameters:
+      - name: cluster-name
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "🧪 MINIKUBE TEST: Validating workflow completion..."
+        echo "Cluster: {{inputs.parameters.cluster-name}}"
+        
+        # Simulate checking cluster readiness
+        echo "📋 Validation Checklist:"
+        echo "  ✅ Cluster configuration validated"
+        echo "  ✅ Resource Group simulated"
+        echo "  ✅ ManagedCluster simulated"  
+        echo "  ✅ Node pool configuration simulated"
+        echo "  ✅ All workflow steps completed successfully"
+        
+        echo ""
+        echo "🎉 Minikube test workflow completed successfully!"
+        echo "📝 This workflow tested the structure and logic without creating real Azure resources"
+        echo "🚀 Ready for deployment to AKS cluster with USE_KARPENTER_WORKFLOW=true"
