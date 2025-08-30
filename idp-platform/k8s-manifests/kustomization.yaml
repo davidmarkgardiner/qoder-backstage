@@ -37,15 +37,19 @@ images:
   - name: davidgardiner/idp-frontend
     newTag: latest-amd64
 
-# Namespace for all resources (except cluster-scoped)
+# Namespace for all resources (except cluster-scoped and specifically namespaced)
 namespace: idp-platform
-
-# Resource configurations
-configurations:
-  - resource-config.yaml
 
 # Patches for environment-specific configurations
 patches:
+  # Exclude certificates in aks-istio-ingress namespace from namespace transformation
+  - target:
+      kind: Certificate
+      namespace: aks-istio-ingress
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: aks-istio-ingress
   - target:
       kind: ConfigMap
       name: idp-config

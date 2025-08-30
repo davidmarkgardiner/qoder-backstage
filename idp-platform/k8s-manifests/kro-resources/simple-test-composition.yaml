@@ -1,0 +1,24 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: simple-test-composition
+  namespace: default
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: SimpleTest
+    spec:
+      type: object
+      properties:
+        name:
+          type: string
+  resources:
+    - id: configMap
+      template:
+        apiVersion: v1
+        kind: ConfigMap
+        metadata:
+          name: test-config
+          namespace: default
+        data:
+          message: "hello world"

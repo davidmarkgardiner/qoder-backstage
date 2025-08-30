@@ -1,0 +1,336 @@
+apiVersion: karpenter.sh/v1beta1
+kind: NodePool
+metadata:
+  name: default-nodepool
+  namespace: karpenter
+  labels:
+    app.kubernetes.io/name: karpenter-nodepool
+    app.kubernetes.io/component: node-management
+    app.kubernetes.io/managed-by: idp-platform
+  annotations:
+    karpenter.sh/description: "Default NodePool template for IDP Platform clusters"
+    idp-platform/template-version: "v1.0.0"
+spec:
+  # Template for nodes created by this pool
+  template:
+    metadata:
+      labels:
+        # Standard labels applied to all nodes
+        managed-by: "karpenter"
+        cluster-name: "${CLUSTER_NAME}"
+        node-pool-type: "${NODE_POOL_TYPE}"
+        environment: "${ENVIRONMENT}"
+        
+        # Custom labels for workload scheduling
+        idp-platform/provisioner: "karpenter"
+        idp-platform/cluster: "${CLUSTER_NAME}"
+      
+      annotations:
+        # Annotations for operational metadata
+        idp-platform/created-at: "${CREATION_TIMESTAMP}"
+        idp-platform/workflow-id: "${WORKFLOW_ID}"
+        karpenter.sh/provisioned-by: "${NODE_CLASS_NAME}"
+    
+    spec:
+      # Reference to the AKSNodeClass
+      nodeClassRef:
+        kind: AKSNodeClass
+        name: "${NODE_CLASS_NAME}"
+      
+      # Node requirements and constraints
+      requirements:
+        # Architecture constraint
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        
+        # Instance type constraint
+        - key: "node.kubernetes.io/instance-type"
+          operator: In
+          values: 
+            - "${PRIMARY_VM_SIZE}"
+            - "${SECONDARY_VM_SIZE}"
+        
+        # SKU family constraint for Azure
+        - key: "karpenter.azure.com/sku-family"
+          operator: In
+          values: ["${SKU_FAMILY}"]
+        
+        # Capacity type (spot vs on-demand)
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["spot", "on-demand"]
+        
+        # Zone distribution for availability
+        - key: "topology.kubernetes.io/zone"
+          operator: In
+          values: ["${CLUSTER_LOCATION}-1", "${CLUSTER_LOCATION}-2", "${CLUSTER_LOCATION}-3"]
+      
+      # Startup taints to prevent scheduling until node is ready
+      startupTaints:
+        - key: "karpenter.sh/unschedulable"
+          value: "true"
+          effect: NoSchedule
+      
+      # Taints for workload isolation (optional)
+      taints:
+        - key: "${NODE_POOL_TYPE}"
+          value: "true"
+          effect: NoSchedule
+  
+  # Disruption settings for intelligent node lifecycle management
+  disruption:
+    # Consolidation policy
+    consolidationPolicy: WhenEmpty
+    
+    # How long to wait before consolidating empty nodes
+    consolidateAfter: 30s
+    
+    # Maximum node age before expiration
+    expireAfter: 2160h # 90 days
+  
+  # Resource limits for the entire node pool
+  limits:
+    cpu: "${MAX_CPU}"
+    memory: "${MAX_MEMORY}"
+
+---
+# Standard NodePool for general workloads
+apiVersion: karpenter.sh/v1beta1
+kind: NodePool
+metadata:
+  name: standard-nodepool
+  namespace: karpenter
+  labels:
+    app.kubernetes.io/name: karpenter-nodepool-standard
+    app.kubernetes.io/component: node-management
+    app.kubernetes.io/managed-by: idp-platform
+    idp-platform/node-pool-type: standard
+  annotations:
+    karpenter.sh/description: "Standard NodePool for general workloads"
+    idp-platform/template-version: "v1.0.0"
+spec:
+  template:
+    metadata:
+      labels:
+        managed-by: "karpenter"
+        node-pool-type: "standard"
+        workload-class: "general"
+        cost-optimization: "balanced"
+      
+      annotations:
+        idp-platform/node-pool-description: "General purpose nodes for standard workloads"
+    
+    spec:
+      nodeClassRef:
+        kind: AKSNodeClass
+        name: default-nodeclass
+      
+      requirements:
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        - key: "node.kubernetes.io/instance-type"
+          operator: In
+          values: ["Standard_DS2_v2", "Standard_DS3_v2", "Standard_DS4_v2"]
+        - key: "karpenter.azure.com/sku-family"
+          operator: In
+          values: ["D"]
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["spot", "on-demand"]
+      
+      # No special taints for standard workloads
+      taints: []
+  
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 30s
+    expireAfter: 2160h
+  
+  limits:
+    cpu: 1000
+    memory: 1000Gi
+
+---
+# Memory-Optimized NodePool for high-memory workloads
+apiVersion: karpenter.sh/v1beta1
+kind: NodePool
+metadata:
+  name: memory-optimized-nodepool
+  namespace: karpenter
+  labels:
+    app.kubernetes.io/name: karpenter-nodepool-memory
+    app.kubernetes.io/component: node-management
+    app.kubernetes.io/managed-by: idp-platform
+    idp-platform/node-pool-type: memory-optimized
+  annotations:
+    karpenter.sh/description: "Memory-optimized NodePool for high-memory workloads"
+    idp-platform/template-version: "v1.0.0"
+spec:
+  template:
+    metadata:
+      labels:
+        managed-by: "karpenter"
+        node-pool-type: "memory-optimized"
+        workload-class: "memory-intensive"
+        optimization-target: "memory"
+      
+      annotations:
+        idp-platform/node-pool-description: "High-memory nodes for memory-intensive workloads"
+        idp-platform/recommended-workloads: "databases,caches,analytics,in-memory-processing"
+    
+    spec:
+      nodeClassRef:
+        kind: AKSNodeClass
+        name: memory-optimized-nodeclass
+      
+      requirements:
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        - key: "node.kubernetes.io/instance-type"
+          operator: In
+          values: ["Standard_E2s_v3", "Standard_E4s_v3", "Standard_E8s_v3"]
+        - key: "karpenter.azure.com/sku-family"
+          operator: In
+          values: ["E"]
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["on-demand", "spot"] # Prefer on-demand for memory-intensive workloads
+      
+      # Taint to ensure only memory-optimized workloads schedule here
+      taints:
+        - key: "memory-optimized"
+          value: "true"
+          effect: NoSchedule
+  
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 60s # Longer consolidation time for stateful workloads
+    expireAfter: 4320h # 180 days - longer for stateful workloads
+  
+  limits:
+    cpu: 1000
+    memory: 2000Gi # Higher memory limit
+
+---
+# Compute-Optimized NodePool for CPU-intensive workloads
+apiVersion: karpenter.sh/v1beta1
+kind: NodePool
+metadata:
+  name: compute-optimized-nodepool
+  namespace: karpenter
+  labels:
+    app.kubernetes.io/name: karpenter-nodepool-compute
+    app.kubernetes.io/component: node-management
+    app.kubernetes.io/managed-by: idp-platform
+    idp-platform/node-pool-type: compute-optimized
+  annotations:
+    karpenter.sh/description: "Compute-optimized NodePool for CPU-intensive workloads"
+    idp-platform/template-version: "v1.0.0"
+spec:
+  template:
+    metadata:
+      labels:
+        managed-by: "karpenter"
+        node-pool-type: "compute-optimized"
+        workload-class: "cpu-intensive"
+        optimization-target: "cpu"
+      
+      annotations:
+        idp-platform/node-pool-description: "High-CPU nodes for compute-intensive workloads"
+        idp-platform/recommended-workloads: "batch-processing,scientific-computing,video-encoding,compilation"
+    
+    spec:
+      nodeClassRef:
+        kind: AKSNodeClass
+        name: compute-optimized-nodeclass
+      
+      requirements:
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        - key: "node.kubernetes.io/instance-type"
+          operator: In
+          values: ["Standard_F2s_v2", "Standard_F4s_v2", "Standard_F8s_v2"]
+        - key: "karpenter.azure.com/sku-family"
+          operator: In
+          values: ["F"]
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["spot", "on-demand"] # Spot instances good for batch workloads
+      
+      # Taint to ensure only compute-optimized workloads schedule here
+      taints:
+        - key: "compute-optimized"
+          value: "true"
+          effect: NoSchedule
+  
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 15s # Quick consolidation for ephemeral workloads
+    expireAfter: 1440h # 60 days - shorter for batch workloads
+  
+  limits:
+    cpu: 2000 # Higher CPU limit
+    memory: 1000Gi
+
+---
+# Spot-Optimized NodePool for cost-sensitive workloads
+apiVersion: karpenter.sh/v1beta1
+kind: NodePool
+metadata:
+  name: spot-optimized-nodepool
+  namespace: karpenter
+  labels:
+    app.kubernetes.io/name: karpenter-nodepool-spot
+    app.kubernetes.io/component: node-management
+    app.kubernetes.io/managed-by: idp-platform
+    idp-platform/node-pool-type: spot-optimized
+  annotations:
+    karpenter.sh/description: "Spot-optimized NodePool for cost-sensitive workloads"
+    idp-platform/template-version: "v1.0.0"
+spec:
+  template:
+    metadata:
+      labels:
+        managed-by: "karpenter"
+        node-pool-type: "spot-optimized"
+        workload-class: "fault-tolerant"
+        cost-optimization: "aggressive"
+      
+      annotations:
+        idp-platform/node-pool-description: "Cost-optimized nodes using spot instances"
+        idp-platform/recommended-workloads: "development,testing,batch-jobs,fault-tolerant-apps"
+    
+    spec:
+      nodeClassRef:
+        kind: AKSNodeClass
+        name: default-nodeclass
+      
+      requirements:
+        - key: "kubernetes.io/arch"
+          operator: In
+          values: ["amd64"]
+        - key: "node.kubernetes.io/instance-type"
+          operator: In
+          values: ["Standard_DS2_v2", "Standard_DS3_v2", "Standard_E2s_v3", "Standard_F2s_v2"]
+        - key: "karpenter.sh/capacity-type"
+          operator: In
+          values: ["spot"] # Only spot instances for maximum cost savings
+      
+      # Taint to ensure workloads are spot-tolerant
+      taints:
+        - key: "spot-instance"
+          value: "true"
+          effect: NoSchedule
+  
+  disruption:
+    consolidationPolicy: WhenEmpty
+    consolidateAfter: 10s # Very aggressive consolidation
+    expireAfter: 720h # 30 days - short for cost optimization
+  
+  limits:
+    cpu: 500
+    memory: 500Gi

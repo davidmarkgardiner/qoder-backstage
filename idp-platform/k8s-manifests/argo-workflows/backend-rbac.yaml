@@ -27,7 +27,7 @@ rules:
 - apiGroups: [""]
   resources: ["events"]
   verbs: ["get", "list", "watch"]
-# KRO permissions
+# KRO permissions (legacy - will be removed post-migration)
 - apiGroups: ["kro.run"]
   resources: ["*"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -37,6 +37,16 @@ rules:
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["containerservice.azure.com"]
   resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["managedidentity.azure.com"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+# Karpenter permissions
+- apiGroups: ["karpenter.sh"]
+  resources: ["nodepools", "nodeclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["karpenter.azure.com"]
+  resources: ["aksnodeclasses"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 # ConfigMaps for workflow configuration
 - apiGroups: [""]
@@ -72,6 +82,12 @@ rules:
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 - apiGroups: ["kro.run"]
   resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["karpenter.sh"]
+  resources: ["nodepools", "nodeclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+- apiGroups: ["karpenter.azure.com"]
+  resources: ["aksnodeclasses"]
   verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

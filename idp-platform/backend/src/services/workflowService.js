@@ -1,6 +1,50 @@
 const k8s = require('@kubernetes/client-node');
 const { v4: uuidv4 } = require('uuid');
 
+// Node pool type to VM size and Karpenter configuration mapping
+const NODE_POOL_CONFIGURATIONS = {
+  'standard': {
+    primaryVmSize: 'Standard_DS2_v2',
+    secondaryVmSize: 'Standard_DS3_v2',
+    skuFamily: 'D',
+    maxCpu: '1000',
+    maxMemory: '1000Gi',
+    nodeClassType: 'default-nodeclass',
+    description: 'General purpose nodes for standard workloads',
+    recommendedFor: ['web-apps', 'microservices', 'general-workloads']
+  },
+  'memory-optimized': {
+    primaryVmSize: 'Standard_E2s_v3',
+    secondaryVmSize: 'Standard_E4s_v3',
+    skuFamily: 'E',
+    maxCpu: '1000',
+    maxMemory: '2000Gi',
+    nodeClassType: 'memory-optimized-nodeclass',
+    description: 'High-memory nodes for memory-intensive workloads',
+    recommendedFor: ['databases', 'caches', 'analytics', 'in-memory-processing']
+  },
+  'compute-optimized': {
+    primaryVmSize: 'Standard_F2s_v2',
+    secondaryVmSize: 'Standard_F4s_v2',
+    skuFamily: 'F',
+    maxCpu: '2000',
+    maxMemory: '1000Gi',
+    nodeClassType: 'compute-optimized-nodeclass',
+    description: 'High-CPU nodes for compute-intensive workloads',
+    recommendedFor: ['batch-processing', 'scientific-computing', 'video-encoding', 'compilation']
+  },
+  'spot-optimized': {
+    primaryVmSize: 'Standard_DS2_v2',
+    secondaryVmSize: 'Standard_DS3_v2',
+    skuFamily: 'D',
+    maxCpu: '500',
+    maxMemory: '500Gi',
+    nodeClassType: 'default-nodeclass',
+    description: 'Cost-optimized nodes using spot instances',
+    recommendedFor: ['development', 'testing', 'batch-jobs', 'fault-tolerant-apps']
+  }
+};
+
 class WorkflowService {
   constructor() {
     this.kc = new k8s.KubeConfig();
@@ -16,6 +60,9 @@ class WorkflowService {
     this.argoNamespace = process.env.ARGO_NAMESPACE || 'default';
     this.argoApiGroup = 'argoproj.io';
     this.argoApiVersion = 'v1alpha1';
+    
+    // Feature flag for Karpenter workflow (default: false for gradual migration)
+    this.useKarpenterWorkflow = process.env.USE_KARPENTER_WORKFLOW === 'true' || false;
     
     // Start workflow status monitoring
     this.startWorkflowMonitoring();
@@ -183,6 +230,11 @@ class WorkflowService {
     
     const argoWorkflowName = `cluster-provisioning-${clusterName}-${workflowId.substring(0, 8)}`;
     
+    // Generate workflow parameters based on selected workflow type
+    const workflowParameters = this.useKarpenterWorkflow 
+      ? await this.generateKarpenterWorkflowParameters(params)
+      : this.generateKroWorkflowParameters(params);
+    
     const workflow = {
       id: workflowId,
       name: `cluster-provisioning-${clusterName}`,
@@ -191,23 +243,14 @@ class WorkflowService {
       clusterId,
       startTime: new Date(),
       argoWorkflowName,
-      parameters: {
-        clusterName,
-        location,
-        nodePoolType,
-        dryRun,
-        enableNAP,
-        advancedConfig
-      }
+      workflowType: this.useKarpenterWorkflow ? 'karpenter' : 'kro',
+      parameters: workflowParameters
     };
     
-    const steps = [
-      { id: uuidv4(), name: 'validate-cluster-config', status: 'pending', startTime: null, endTime: null },
-      { id: uuidv4(), name: 'create-kro-cluster', status: 'pending', startTime: null, endTime: null },
-      { id: uuidv4(), name: 'wait-for-kro-ready', status: 'pending', startTime: null, endTime: null },
-      { id: uuidv4(), name: 'wait-cluster-ready', status: 'pending', startTime: null, endTime: null },
-      { id: uuidv4(), name: 'setup-flux-gitops', status: 'pending', startTime: null, endTime: null }
-    ];
+    // Generate workflow steps based on type
+    const steps = this.useKarpenterWorkflow 
+      ? this.generateKarpenterWorkflowSteps()
+      : this.generateKroWorkflowSteps();
     
     this.workflows.set(workflowId, workflow);
     this.workflowSteps.set(workflowId, steps);
@@ -215,8 +258,13 @@ class WorkflowService {
     
     // Create actual Argo Workflow
     try {
-      await this.createArgoWorkflow(workflow);
-      this.addLog(workflowId, `Argo Workflow ${argoWorkflowName} created successfully`, 'info');
+      if (this.useKarpenterWorkflow) {
+        await this.createArgoKarpenterWorkflow(workflow);
+        this.addLog(workflowId, `Argo Karpenter Workflow ${argoWorkflowName} created successfully`, 'info');
+      } else {
+        await this.createArgoWorkflow(workflow);
+        this.addLog(workflowId, `Argo KRO Workflow ${argoWorkflowName} created successfully`, 'info');
+      }
     } catch (error) {
       this.addLog(workflowId, `Failed to create Argo Workflow: ${error.message}`, 'error');
       workflow.status = 'failed';
@@ -225,6 +273,94 @@ class WorkflowService {
     }
     
     return workflow;
+  }
+
+  // Generate parameters for Karpenter-based workflows
+  async generateKarpenterWorkflowParameters(params) {
+    const {
+      clusterName,
+      location,
+      nodePoolType,
+      dryRun,
+      enableNAP,
+      advancedConfig
+    } = params;
+
+    // Get node pool configuration
+    const nodePoolConfig = NODE_POOL_CONFIGURATIONS[nodePoolType] || NODE_POOL_CONFIGURATIONS.standard;
+    
+    return {
+      clusterName,
+      location,
+      nodePoolType,
+      dryRun,
+      enableNAP,
+      kubernetesVersion: advancedConfig?.kubernetesVersion || '1.28.3',
+      primaryVmSize: nodePoolConfig.primaryVmSize,
+      secondaryVmSize: nodePoolConfig.secondaryVmSize,
+      skuFamily: nodePoolConfig.skuFamily,
+      maxCpu: nodePoolConfig.maxCpu,
+      maxMemory: nodePoolConfig.maxMemory,
+      systemVmSize: 'Standard_B2s', // Minimal system pool
+      nodeClassType: nodePoolConfig.nodeClassType,
+      advancedConfig
+    };
+  }
+
+  // Generate parameters for KRO-based workflows (legacy)
+  generateKroWorkflowParameters(params) {
+    const {
+      clusterName,
+      location,
+      nodePoolType,
+      dryRun,
+      enableNAP,
+      advancedConfig
+    } = params;
+
+    return {
+      clusterName,
+      location,
+      nodePoolType,
+      dryRun,
+      enableNAP,
+      advancedConfig
+    };
+  }
+
+  // Generate workflow steps for Karpenter workflows
+  generateKarpenterWorkflowSteps() {
+    return [
+      { id: uuidv4(), name: 'validate-inputs', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'create-resource-group', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'create-managed-cluster', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'create-karpenter-nodeclass', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'create-karpenter-nodepool', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'wait-for-cluster-ready', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'configure-cluster-addons', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'configure-gitops', status: 'pending', startTime: null, endTime: null }
+    ];
+  }
+
+  // Generate workflow steps for KRO workflows (legacy)
+  generateKroWorkflowSteps() {
+    return [
+      { id: uuidv4(), name: 'validate-cluster-config', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'create-kro-cluster', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'wait-for-kro-ready', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'wait-cluster-ready', status: 'pending', startTime: null, endTime: null },
+      { id: uuidv4(), name: 'setup-flux-gitops', status: 'pending', startTime: null, endTime: null }
+    ];
+  }
+
+  // Get node pool configurations for frontend
+  getNodePoolConfigurations() {
+    return NODE_POOL_CONFIGURATIONS;
+  }
+
+  // Get workflow type (for debugging and monitoring)
+  getWorkflowType() {
+    return this.useKarpenterWorkflow ? 'karpenter' : 'kro';
   }
   
   async createArgoWorkflow(workflow) {
@@ -241,6 +377,7 @@ class WorkflowService {
         }
       },
       spec: {
+        serviceAccountName: 'idp-backend-sa',
         workflowTemplateRef: {
           name: 'aks-cluster-provisioning'
         },
@@ -277,6 +414,90 @@ class WorkflowService {
             {
               name: 'enable-spot',
               value: workflow.parameters.advancedConfig?.enableSpot?.toString() || 'false'
+            }
+          ]
+        }
+      }
+    };
+    
+    await this.customApi.createNamespacedCustomObject(
+      this.argoApiGroup,
+      this.argoApiVersion,
+      this.argoNamespace,
+      'workflows',
+      argoWorkflowManifest
+    );
+  }
+
+  // Create Argo Workflow for Karpenter-based cluster provisioning
+  async createArgoKarpenterWorkflow(workflow) {
+    const argoWorkflowManifest = {
+      apiVersion: 'argoproj.io/v1alpha1',
+      kind: 'Workflow',
+      metadata: {
+        name: workflow.argoWorkflowName,
+        namespace: this.argoNamespace,
+        labels: {
+          'idp.platform/workflow-id': workflow.id,
+          'idp.platform/workflow-type': workflow.type,
+          'idp.platform/cluster-id': workflow.clusterId,
+          'idp.platform/workflow-engine': 'karpenter'
+        }
+      },
+      spec: {
+        serviceAccountName: 'idp-backend-sa',
+        workflowTemplateRef: {
+          name: 'aks-cluster-provisioning-aso-karpenter'
+        },
+        arguments: {
+          parameters: [
+            {
+              name: 'cluster-name',
+              value: workflow.parameters.clusterName
+            },
+            {
+              name: 'location',
+              value: workflow.parameters.location
+            },
+            {
+              name: 'node-pool-type',
+              value: workflow.parameters.nodePoolType
+            },
+            {
+              name: 'enable-nap',
+              value: workflow.parameters.enableNAP.toString()
+            },
+            {
+              name: 'dry-run',
+              value: workflow.parameters.dryRun.toString()
+            },
+            {
+              name: 'kubernetes-version',
+              value: workflow.parameters.kubernetesVersion
+            },
+            {
+              name: 'primary-vm-size',
+              value: workflow.parameters.primaryVmSize
+            },
+            {
+              name: 'secondary-vm-size',
+              value: workflow.parameters.secondaryVmSize
+            },
+            {
+              name: 'sku-family',
+              value: workflow.parameters.skuFamily
+            },
+            {
+              name: 'max-cpu',
+              value: workflow.parameters.maxCpu
+            },
+            {
+              name: 'max-memory',
+              value: workflow.parameters.maxMemory
+            },
+            {
+              name: 'system-vm-size',
+              value: workflow.parameters.systemVmSize
             }
           ]
         }
@@ -351,6 +572,7 @@ class WorkflowService {
         }
       },
       spec: {
+        serviceAccountName: 'idp-backend-sa',
         workflowTemplateRef: {
           name: 'aks-cluster-deletion'
         },

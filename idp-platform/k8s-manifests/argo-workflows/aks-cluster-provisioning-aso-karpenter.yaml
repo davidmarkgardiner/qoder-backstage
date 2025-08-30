@@ -1,0 +1,600 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: aks-cluster-provisioning-aso-karpenter
+  namespace: default
+  labels:
+    app.kubernetes.io/name: aks-cluster-provisioning-aso-karpenter
+    app.kubernetes.io/component: workflow-template
+    app.kubernetes.io/managed-by: idp-platform
+  annotations:
+    workflows.argoproj.io/description: |
+      Template for provisioning AKS clusters with direct ASO integration and Karpenter node management
+    workflows.argoproj.io/maintainer: IDP Platform Team
+    workflows.argoproj.io/tags: aks,provisioning,aso,karpenter,self-service
+spec:
+  entrypoint: provision-cluster
+  serviceAccountName: idp-backend-sa
+  
+  # Workflow arguments
+  arguments:
+    parameters:
+    - name: cluster-name
+      description: "Name of the AKS cluster to create"
+    - name: location
+      description: "Azure region for the cluster"
+      value: "eastus"
+    - name: node-pool-type
+      description: "Type of node pool (standard, memory-optimized, compute-optimized)"
+      value: "standard"
+    - name: enable-nap
+      description: "Enable Node Auto Provisioning via Karpenter"
+      value: "true"
+    - name: dry-run
+      description: "Run in dry-run mode without creating Azure resources"
+      value: "true"
+    - name: kubernetes-version
+      description: "Kubernetes version"
+      value: "1.28.3"
+    - name: primary-vm-size
+      description: "Primary VM size for node pool"
+      value: "Standard_DS2_v2"
+    - name: secondary-vm-size
+      description: "Secondary VM size for node pool"
+      value: "Standard_DS3_v2"
+    - name: sku-family
+      description: "SKU family for VM selection"
+      value: "D"
+    - name: max-cpu
+      description: "Maximum CPU limit for Karpenter NodePool"
+      value: "1000"
+    - name: max-memory
+      description: "Maximum memory limit for Karpenter NodePool"
+      value: "1000Gi"
+    - name: system-vm-size
+      description: "VM size for system node pool"
+      value: "Standard_B2s"
+
+  # Main workflow DAG
+  templates:
+  - name: provision-cluster
+    dag:
+      tasks:
+      # Phase 1: Validation
+      - name: validate-inputs
+        template: validate-cluster-config
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: node-pool-type
+            value: "{{workflow.parameters.node-pool-type}}"
+      
+      # Phase 2: Resource Group Creation
+      - name: create-resource-group
+        template: create-resource-group-step
+        dependencies: [validate-inputs]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      # Phase 3: Managed Cluster Creation
+      - name: create-managed-cluster
+        template: create-managed-cluster-step
+        dependencies: [create-resource-group]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: kubernetes-version
+            value: "{{workflow.parameters.kubernetes-version}}"
+          - name: system-vm-size
+            value: "{{workflow.parameters.system-vm-size}}"
+          - name: enable-nap
+            value: "{{workflow.parameters.enable-nap}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      # Phase 4: Karpenter NodeClass Creation
+      - name: create-karpenter-nodeclass
+        template: create-karpenter-nodeclass-step
+        dependencies: [create-managed-cluster]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: location
+            value: "{{workflow.parameters.location}}"
+          - name: primary-vm-size
+            value: "{{workflow.parameters.primary-vm-size}}"
+          - name: secondary-vm-size
+            value: "{{workflow.parameters.secondary-vm-size}}"
+          - name: sku-family
+            value: "{{workflow.parameters.sku-family}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      # Phase 5: Karpenter NodePool Creation
+      - name: create-karpenter-nodepool
+        template: create-karpenter-nodepool-step
+        dependencies: [create-karpenter-nodeclass]
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+          - name: node-pool-type
+            value: "{{workflow.parameters.node-pool-type}}"
+          - name: primary-vm-size
+            value: "{{workflow.parameters.primary-vm-size}}"
+          - name: secondary-vm-size
+            value: "{{workflow.parameters.secondary-vm-size}}"
+          - name: max-cpu
+            value: "{{workflow.parameters.max-cpu}}"
+          - name: max-memory
+            value: "{{workflow.parameters.max-memory}}"
+          - name: sku-family
+            value: "{{workflow.parameters.sku-family}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+      
+      # Phase 6: Wait for cluster readiness
+      - name: wait-for-cluster-ready
+        template: wait-cluster-ready
+        dependencies: [create-karpenter-nodepool]
+        when: "{{workflow.parameters.dry-run}} == false"
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+      
+      # Phase 7: Configure cluster addons
+      - name: configure-cluster-addons
+        template: setup-cluster-addons
+        dependencies: [wait-for-cluster-ready]
+        when: "{{workflow.parameters.dry-run}} == false"
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+      
+      # Phase 8: Setup GitOps
+      - name: configure-gitops
+        template: setup-flux-gitops
+        dependencies: [configure-cluster-addons]
+        when: "{{workflow.parameters.dry-run}} == false"
+        arguments:
+          parameters:
+          - name: cluster-name
+            value: "{{workflow.parameters.cluster-name}}"
+
+  # Step templates
+  - name: validate-cluster-config
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: node-pool-type
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Validating cluster configuration..."
+        echo "Cluster name: {{inputs.parameters.cluster-name}}"
+        echo "Location: {{inputs.parameters.location}}"
+        echo "Node pool type: {{inputs.parameters.node-pool-type}}"
+        
+        # Validate cluster name format
+        if ! echo "{{inputs.parameters.cluster-name}}" | grep -qE '^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$'; then
+          echo "ERROR: Invalid cluster name format"
+          exit 1
+        fi
+        
+        # Validate node pool type
+        case "{{inputs.parameters.node-pool-type}}" in
+          standard|memory-optimized|compute-optimized)
+            echo "Node pool type validation passed"
+            ;;
+          *)
+            echo "ERROR: Invalid node pool type. Must be: standard, memory-optimized, or compute-optimized"
+            exit 1
+            ;;
+        esac
+        
+        echo "Cluster configuration validation completed successfully"
+
+  - name: create-resource-group-step
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: dry-run
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Creating Azure Resource Group for cluster: {{inputs.parameters.cluster-name}}"
+        
+        # Create ResourceGroup manifest
+        cat <<EOF > /tmp/resource-group.yaml
+        apiVersion: resources.azure.com/v1api20200601
+        kind: ResourceGroup
+        metadata:
+          name: rg-{{inputs.parameters.cluster-name}}
+          namespace: azure-system
+          labels:
+            app.kubernetes.io/managed-by: idp-platform
+            idp-platform/cluster-name: {{inputs.parameters.cluster-name}}
+            idp-platform/resource-type: resource-group
+          annotations:
+            idp-platform/created-at: "$(date -Iseconds)"
+            idp-platform/workflow-id: "{{workflow.uid}}"
+        spec:
+          location: "{{inputs.parameters.location}}"
+          tags:
+            environment: "dev"
+            createdBy: "idp-platform-aso-karpenter"
+            clusterName: "{{inputs.parameters.cluster-name}}"
+            workflowId: "{{workflow.uid}}"
+        EOF
+        
+        if [ "{{inputs.parameters.dry-run}}" = "true" ]; then
+          echo "DRY RUN: Would create ResourceGroup with manifest:"
+          cat /tmp/resource-group.yaml
+        else
+          kubectl apply -f /tmp/resource-group.yaml
+          echo "ResourceGroup rg-{{inputs.parameters.cluster-name}} created successfully"
+        fi
+
+  - name: create-managed-cluster-step
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: kubernetes-version
+      - name: system-vm-size
+      - name: enable-nap
+      - name: dry-run
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Creating AKS Managed Cluster: {{inputs.parameters.cluster-name}}"
+        
+        # Create ManagedCluster manifest
+        cat <<EOF > /tmp/managed-cluster.yaml
+        apiVersion: containerservice.azure.com/v1api20240402preview
+        kind: ManagedCluster
+        metadata:
+          name: {{inputs.parameters.cluster-name}}
+          namespace: azure-system
+          labels:
+            app.kubernetes.io/managed-by: idp-platform
+            idp-platform/cluster-name: {{inputs.parameters.cluster-name}}
+            idp-platform/resource-type: managed-cluster
+          annotations:
+            idp-platform/created-at: "$(date -Iseconds)"
+            idp-platform/workflow-id: "{{workflow.uid}}"
+        spec:
+          location: "{{inputs.parameters.location}}"
+          owner:
+            name: rg-{{inputs.parameters.cluster-name}}
+          identity:
+            type: SystemAssigned
+          
+          # Node Auto Provisioning Configuration
+          nodeProvisioningProfile:
+            mode: "{{if eq inputs.parameters.enable-nap \"true\"}}Auto{{else}}Manual{{end}}"
+          
+          # System Node Pool (minimal when NAP enabled)
+          agentPoolProfiles:
+            - name: systempool
+              mode: System
+              count: 1
+              vmSize: "{{inputs.parameters.system-vm-size}}"
+              enableAutoScaling: "{{if eq inputs.parameters.enable-nap \"true\"}}false{{else}}true{{end}}"
+              minCount: 1
+              maxCount: 3
+              osDiskType: Managed
+              osDiskSizeGB: 100
+              osType: Linux
+              maxPods: 110
+          
+          kubernetesVersion: "{{inputs.parameters.kubernetes-version}}"
+          
+          # Network Profile
+          networkProfile:
+            networkPlugin: azure
+            networkPluginMode: overlay
+            networkPolicy: cilium
+            networkDataplane: cilium
+            serviceCidr: 10.251.0.0/17
+            dnsServiceIP: 10.251.0.10
+            podCidr: 10.251.128.0/17
+            loadBalancerSku: standard
+            outboundType: loadBalancer
+          
+          # Security and Identity
+          enableRBAC: true
+          workloadIdentity:
+            enabled: true
+          
+          # SKU Configuration
+          sku:
+            name: Base
+            tier: Standard
+          
+          # Tags
+          tags:
+            environment: "dev"
+            project: "idp-platform"
+            managedBy: "aso-karpenter-workflow"
+            createdAt: "$(date -Iseconds)"
+            workflowId: "{{workflow.uid}}"
+        EOF
+        
+        if [ "{{inputs.parameters.dry-run}}" = "true" ]; then
+          echo "DRY RUN: Would create ManagedCluster with manifest:"
+          cat /tmp/managed-cluster.yaml
+        else
+          kubectl apply -f /tmp/managed-cluster.yaml
+          echo "ManagedCluster {{inputs.parameters.cluster-name}} created successfully"
+        fi
+
+  - name: create-karpenter-nodeclass-step
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: location
+      - name: primary-vm-size
+      - name: secondary-vm-size
+      - name: sku-family
+      - name: dry-run
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Creating Karpenter AKSNodeClass: {{inputs.parameters.cluster-name}}-nodeclass"
+        
+        # Create AKSNodeClass manifest
+        cat <<EOF > /tmp/aksnode-class.yaml
+        apiVersion: karpenter.azure.com/v1alpha2
+        kind: AKSNodeClass
+        metadata:
+          name: {{inputs.parameters.cluster-name}}-nodeclass
+          namespace: karpenter
+          labels:
+            app.kubernetes.io/managed-by: idp-platform
+            idp-platform/cluster-name: {{inputs.parameters.cluster-name}}
+            idp-platform/resource-type: karpenter-nodeclass
+          annotations:
+            idp-platform/created-at: "$(date -Iseconds)"
+            idp-platform/workflow-id: "{{workflow.uid}}"
+        spec:
+          # Azure-specific configuration
+          location: "{{inputs.parameters.location}}"
+          resourceGroup: "rg-{{inputs.parameters.cluster-name}}"
+          subnetName: "aks-subnet"
+          
+          # Instance types based on node pool configuration
+          instanceTypes:
+            - "{{inputs.parameters.primary-vm-size}}"
+            - "{{inputs.parameters.secondary-vm-size}}"
+          
+          # OS Disk configuration
+          osDisk:
+            sizeGb: 100
+            type: Premium_LRS
+          
+          # Custom user data for node initialization
+          userData: |
+            #!/bin/bash
+            echo "Node initialized by Karpenter for cluster {{inputs.parameters.cluster-name}}"
+            echo "Timestamp: $(date -Iseconds)"
+            echo "Primary VM Size: {{inputs.parameters.primary-vm-size}}"
+            echo "Secondary VM Size: {{inputs.parameters.secondary-vm-size}}"
+            
+          # Tags for cost tracking and management
+          tags:
+            environment: "dev"
+            cluster: "{{inputs.parameters.cluster-name}}"
+            nodeClass: "{{inputs.parameters.cluster-name}}-nodeclass"
+            managedBy: "karpenter"
+            workflowId: "{{workflow.uid}}"
+        EOF
+        
+        if [ "{{inputs.parameters.dry-run}}" = "true" ]; then
+          echo "DRY RUN: Would create AKSNodeClass with manifest:"
+          cat /tmp/aksnode-class.yaml
+        else
+          kubectl apply -f /tmp/aksnode-class.yaml
+          echo "AKSNodeClass {{inputs.parameters.cluster-name}}-nodeclass created successfully"
+        fi
+
+  - name: create-karpenter-nodepool-step
+    inputs:
+      parameters:
+      - name: cluster-name
+      - name: node-pool-type
+      - name: primary-vm-size
+      - name: secondary-vm-size
+      - name: max-cpu
+      - name: max-memory
+      - name: sku-family
+      - name: dry-run
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Creating Karpenter NodePool: {{inputs.parameters.cluster-name}}-nodepool"
+        
+        # Create NodePool manifest
+        cat <<EOF > /tmp/nodepool.yaml
+        apiVersion: karpenter.sh/v1beta1
+        kind: NodePool
+        metadata:
+          name: {{inputs.parameters.cluster-name}}-nodepool
+          namespace: karpenter
+          labels:
+            app.kubernetes.io/managed-by: idp-platform
+            idp-platform/cluster-name: {{inputs.parameters.cluster-name}}
+            idp-platform/resource-type: karpenter-nodepool
+            idp-platform/node-pool-type: {{inputs.parameters.node-pool-type}}
+          annotations:
+            idp-platform/created-at: "$(date -Iseconds)"
+            idp-platform/workflow-id: "{{workflow.uid}}"
+        spec:
+          template:
+            metadata:
+              labels:
+                node-pool-type: "{{inputs.parameters.node-pool-type}}"
+                cluster-name: "{{inputs.parameters.cluster-name}}"
+                managed-by: "karpenter"
+            
+            spec:
+              # Node class reference
+              nodeClassRef:
+                kind: AKSNodeClass
+                name: {{inputs.parameters.cluster-name}}-nodeclass
+              
+              # Resource requirements and constraints
+              requirements:
+                - key: "karpenter.azure.com/sku-family"
+                  operator: In
+                  values: ["{{inputs.parameters.sku-family}}"]
+                - key: "kubernetes.io/arch"
+                  operator: In
+                  values: ["amd64"]
+                - key: "node.kubernetes.io/instance-type"
+                  operator: In
+                  values: 
+                    - "{{inputs.parameters.primary-vm-size}}"
+                    - "{{inputs.parameters.secondary-vm-size}}"
+                - key: "karpenter.sh/capacity-type"
+                  operator: In
+                  values: ["spot", "on-demand"]
+              
+              # Taints for specialized workloads
+              taints:
+                - key: "{{inputs.parameters.node-pool-type}}"
+                  value: "true"
+                  effect: NoSchedule
+          
+          # Disruption settings for intelligent node management
+          disruption:
+            consolidationPolicy: WhenEmpty
+            consolidateAfter: 30s
+            expireAfter: 2160h # 90 days
+          
+          # Scaling limits
+          limits:
+            cpu: "{{inputs.parameters.max-cpu}}"
+            memory: "{{inputs.parameters.max-memory}}"
+        EOF
+        
+        if [ "{{inputs.parameters.dry-run}}" = "true" ]; then
+          echo "DRY RUN: Would create NodePool with manifest:"
+          cat /tmp/nodepool.yaml
+        else
+          kubectl apply -f /tmp/nodepool.yaml
+          echo "NodePool {{inputs.parameters.cluster-name}}-nodepool created successfully"
+        fi
+
+  - name: wait-cluster-ready
+    inputs:
+      parameters:
+      - name: cluster-name
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Waiting for AKS cluster {{inputs.parameters.cluster-name}} to be ready..."
+        
+        TIMEOUT=1800 # 30 minutes
+        ELAPSED=0
+        INTERVAL=30
+        
+        while [ $ELAPSED -lt $TIMEOUT ]; do
+          echo "Checking cluster status (elapsed: ${ELAPSED}s)..."
+          
+          # Check if ManagedCluster resource is ready
+          if kubectl get managedcluster {{inputs.parameters.cluster-name}} -n azure-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null | grep -q "True"; then
+            echo "AKS cluster {{inputs.parameters.cluster-name}} is ready!"
+            
+            # Additional validation - check if cluster is provisioned
+            PROVISIONING_STATE=$(kubectl get managedcluster {{inputs.parameters.cluster-name}} -n azure-system -o jsonpath='{.status.provisioningState}' 2>/dev/null || echo "Unknown")
+            echo "Cluster provisioning state: ${PROVISIONING_STATE}"
+            
+            if [ "$PROVISIONING_STATE" = "Succeeded" ]; then
+              echo "Cluster provisioning completed successfully"
+              exit 0
+            fi
+          fi
+          
+          echo "Cluster not ready yet, waiting ${INTERVAL} seconds..."
+          sleep $INTERVAL
+          ELAPSED=$((ELAPSED + INTERVAL))
+        done
+        
+        echo "ERROR: Cluster did not become ready within ${TIMEOUT} seconds"
+        kubectl get managedcluster {{inputs.parameters.cluster-name}} -n azure-system -o yaml || true
+        exit 1
+
+  - name: setup-cluster-addons
+    inputs:
+      parameters:
+      - name: cluster-name
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Setting up cluster addons for {{inputs.parameters.cluster-name}}..."
+        
+        # This step would typically configure:
+        # - Monitoring and observability
+        # - Service mesh (if not already configured)
+        # - Security policies
+        # - Custom addons
+        
+        echo "Addon configuration completed for cluster {{inputs.parameters.cluster-name}}"
+
+  - name: setup-flux-gitops
+    inputs:
+      parameters:
+      - name: cluster-name
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Setting up Flux GitOps for cluster {{inputs.parameters.cluster-name}}..."
+        
+        # This step would typically:
+        # - Install Flux operators
+        # - Configure GitOps repository connections
+        # - Set up automated deployments
+        
+        echo "GitOps configuration completed for cluster {{inputs.parameters.cluster-name}}"

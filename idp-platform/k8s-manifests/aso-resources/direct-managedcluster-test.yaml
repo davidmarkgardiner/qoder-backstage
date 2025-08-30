@@ -1,0 +1,33 @@
+apiVersion: containerservice.azure.com/v1api20240402preview
+kind: ManagedCluster
+metadata:
+  name: "prod-aks-dev"
+  namespace: azure-system
+  annotations:
+    serviceoperator.azure.com/operator-namespace: azureserviceoperator-system
+spec:
+  location: "eastus"
+  owner:
+    name: "rg-direct-test"  # Reference to the ResourceGroup we created earlier
+  identity:
+    type: SystemAssigned
+  
+  # Default System Node Pool
+  agentPoolProfiles:
+    - name: systempool
+      mode: System
+      count: 1
+      vmSize: "Standard_DS2_v2"
+      enableAutoScaling: true
+      minCount: 1
+      maxCount: 10
+  
+  # Kubernetes Version
+  kubernetesVersion: "1.28.3"
+  
+  # Tags
+  tags:
+    environment: "dev"
+    nodePoolType: "standard"
+    dryRun: "false"
+    clusterName: "prod-aks-dev"
