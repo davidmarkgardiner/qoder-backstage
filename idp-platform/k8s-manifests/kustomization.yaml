@@ -1,0 +1,69 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: idp-platform
+  annotations:
+    config.kubernetes.io/local-config: "true"
+    platform.io/description: "Internal Developer Platform for AKS cluster onboarding"
+
+# Deploy IDP Platform resources in order
+resources:
+  - 01-namespace-rbac.yaml
+  - 02-configmaps.yaml
+  - 03-deployments.yaml
+  - 04-services.yaml
+  - 05-istio-gateway.yaml
+  - 06-certificates.yaml
+
+# Common labels for all resources
+labels:
+  - pairs:
+      app.kubernetes.io/name: idp-platform
+      app.kubernetes.io/part-of: idp-platform
+      app.kubernetes.io/managed-by: flux
+      platform.io/layer: "03-applications"
+      platform.io/component: "idp-platform"
+
+# Common annotations
+commonAnnotations:
+  platform.io/description: "Internal Developer Platform for AKS cluster management"
+  platform.io/version: "1.0.0"
+
+# Image transformations with architecture-specific tags
+images:
+  - name: davidgardiner/idp-backend
+    newTag: latest-amd64
+  - name: davidgardiner/idp-frontend
+    newTag: latest-amd64
+
+# Namespace for all resources (except cluster-scoped and specifically namespaced)
+namespace: idp-platform
+
+# Patches for environment-specific configurations
+patches:
+  # Exclude certificates in aks-istio-ingress namespace from namespace transformation
+  - target:
+      kind: Certificate
+      namespace: aks-istio-ingress
+    patch: |-
+      - op: replace
+        path: /metadata/namespace
+        value: aks-istio-ingress
+  - target:
+      kind: ConfigMap
+      name: idp-config
+    patch: |-
+      - op: replace
+        path: /data/NODE_ENV
+        value: production
+      - op: replace
+        path: /data/LOG_LEVEL
+        value: info
+
+# Replicas for production
+replicas:
+  - name: idp-backend
+    count: 2
+  - name: idp-frontend
+    count: 2

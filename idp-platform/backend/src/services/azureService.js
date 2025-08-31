@@ -1,6 +1,9 @@
+const WorkflowService = require('./workflowService');
+
 class AzureService {
   constructor() {
     // Mock data for Azure locations and configurations
+    this.workflowService = WorkflowService;
   }
   
   async getAvailableLocations() {
@@ -44,58 +47,147 @@ class AzureService {
   }
   
   async getNodePoolTypes() {
-    return [
-      {
-        name: 'standard',
-        displayName: 'Standard',
-        description: 'Balanced CPU and memory for general workloads',
-        vmSizes: ['Standard_DS2_v2', 'Standard_DS3_v2', 'Standard_DS4_v2'],
-        defaultVmSize: 'Standard_DS2_v2',
-        napSupported: true,
-        costTier: 'low'
+    // Get node pool configurations from WorkflowService
+    const nodePoolConfigs = this.workflowService.getNodePoolConfigurations();
+    
+    // Convert to frontend format
+    const nodePoolTypes = Object.entries(nodePoolConfigs).map(([name, config]) => ({
+      name,
+      displayName: this.formatDisplayName(name),
+      description: config.description,
+      vmSizes: [config.primaryVmSize, config.secondaryVmSize],
+      defaultVmSize: config.primaryVmSize,
+      napSupported: true, // All Karpenter pools support NAP
+      costTier: this.getCostTier(name),
+      karpenterConfig: {
+        skuFamily: config.skuFamily,
+        maxCpu: config.maxCpu,
+        maxMemory: config.maxMemory,
+        nodeClassType: config.nodeClassType
       },
-      {
-        name: 'memory-optimized',
-        displayName: 'Memory Optimized',
-        description: 'High memory-to-CPU ratio for memory-intensive workloads',
-        vmSizes: ['Standard_E2s_v3', 'Standard_E4s_v3', 'Standard_E8s_v3'],
-        defaultVmSize: 'Standard_E2s_v3',
-        napSupported: true,
-        costTier: 'medium'
-      },
-      {
-        name: 'compute-optimized',
-        displayName: 'Compute Optimized',
-        description: 'High CPU-to-memory ratio for compute-intensive workloads',
-        vmSizes: ['Standard_F2s_v2', 'Standard_F4s_v2', 'Standard_F8s_v2'],
-        defaultVmSize: 'Standard_F2s_v2',
-        napSupported: true,
-        costTier: 'medium'
-      }
-    ];
+      recommendedFor: config.recommendedFor || []
+    }));
+    
+    return nodePoolTypes;
+  }
+
+  // Helper method to format display names
+  formatDisplayName(name) {
+    return name
+      .split('-')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+
+  // Helper method to determine cost tier
+  getCostTier(nodePoolType) {
+    const costTiers = {
+      'standard': 'low',
+      'memory-optimized': 'medium',
+      'compute-optimized': 'medium',
+      'spot-optimized': 'very-low'
+    };
+    return costTiers[nodePoolType] || 'medium';
   }
   
   async getNodePoolRecommendations() {
-    return [
-      {
-        nodePoolType: 'standard',
-        useCase: 'Web applications, microservices, development environments',
-        pros: ['Cost-effective', 'Balanced performance', 'Good for most workloads'],
-        cons: ['May not handle memory-intensive tasks well']
-      },
-      {
-        nodePoolType: 'memory-optimized',
-        useCase: 'In-memory databases, caches, big data analytics',
-        pros: ['Excellent for memory-intensive workloads', 'High memory bandwidth'],
-        cons: ['Higher cost per hour', 'Overkill for CPU-bound tasks']
-      },
-      {
-        nodePoolType: 'compute-optimized',
-        useCase: 'CPU-intensive applications, batch processing, gaming servers',
-        pros: ['High CPU performance', 'Excellent for compute workloads'],
-        cons: ['Limited memory per core', 'Higher cost for memory-intensive tasks']
-      }
-    ];
+    const nodePoolConfigs = this.workflowService.getNodePoolConfigurations();
+    
+    // Generate recommendations based on node pool configurations
+    const recommendations = Object.entries(nodePoolConfigs).map(([nodePoolType, config]) => ({
+      nodePoolType,
+      displayName: this.formatDisplayName(nodePoolType),
+      useCase: this.getUseCase(nodePoolType, config),
+      pros: this.getPros(nodePoolType, config),
+      cons: this.getCons(nodePoolType, config),
+      recommendedFor: config.recommendedFor,
+      karpenterFeatures: this.getKarpenterFeatures(nodePoolType, config)
+    }));
+    
+    return recommendations;
+  }
+
+  // Helper method to get use case description
+  getUseCase(nodePoolType, config) {
+    const useCases = {
+      'standard': 'Web applications, microservices, development environments, general-purpose workloads',
+      'memory-optimized': 'In-memory databases, caches, big data analytics, memory-intensive applications',
+      'compute-optimized': 'CPU-intensive applications, batch processing, scientific computing, compilation tasks',
+      'spot-optimized': 'Development environments, testing, fault-tolerant batch jobs, cost-sensitive workloads'
+    };
+    
+    return useCases[nodePoolType] || `Workloads optimized for ${nodePoolType} requirements`;
+  }
+
+  // Helper method to get pros
+  getPros(nodePoolType, config) {
+    const prosMap = {
+      'standard': [
+        'Cost-effective for most workloads',
+        'Balanced CPU and memory ratio',
+        'Good performance for general use cases',
+        'Karpenter auto-scaling and optimization'
+      ],
+      'memory-optimized': [
+        'Excellent for memory-intensive workloads',
+        'High memory-to-CPU ratio',
+        'Karpenter intelligent node management',
+        'Suitable for in-memory processing'
+      ],
+      'compute-optimized': [
+        'High CPU performance per core',
+        'Excellent for compute-bound tasks',
+        'Karpenter spot instance support',
+        'Fast processing capabilities'
+      ],
+      'spot-optimized': [
+        'Significant cost savings (up to 90%)',
+        'Karpenter handles spot interruptions',
+        'Good for fault-tolerant workloads',
+        'Automatic fallback to on-demand'
+      ]
+    };
+    
+    return prosMap[nodePoolType] || ['Optimized for specific use cases', 'Karpenter management'];
+  }
+
+  // Helper method to get cons
+  getCons(nodePoolType, config) {
+    const consMap = {
+      'standard': [
+        'May not excel at specialized workloads',
+        'Not optimized for high-memory or high-CPU tasks'
+      ],
+      'memory-optimized': [
+        'Higher cost per hour',
+        'Overkill for CPU-bound tasks',
+        'Limited CPU performance per dollar'
+      ],
+      'compute-optimized': [
+        'Limited memory per core',
+        'Higher cost for memory-intensive tasks',
+        'May need more nodes for balanced workloads'
+      ],
+      'spot-optimized': [
+        'Potential for instance interruptions',
+        'Not suitable for mission-critical workloads',
+        'Unpredictable availability'
+      ]
+    };
+    
+    return consMap[nodePoolType] || ['Trade-offs depend on specific requirements'];
+  }
+
+  // Helper method to get Karpenter-specific features
+  getKarpenterFeatures(nodePoolType, config) {
+    return {
+      autoScaling: 'Intelligent node provisioning and deprovisioning',
+      spotSupport: nodePoolType === 'spot-optimized' ? 'Optimized for spot instances' : 'Spot instance capable',
+      nodeConsolidation: 'Automatic node consolidation when possible',
+      multiInstanceType: `Supports ${config.primaryVmSize} and ${config.secondaryVmSize}`,
+      resourceLimits: `Max ${config.maxCpu} CPU, ${config.maxMemory} memory`,
+      taints: `Specialized taints for ${nodePoolType} workloads`
+    };
   }
   
   async getVMSizes(location) {

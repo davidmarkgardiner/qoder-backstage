@@ -1,0 +1,32 @@
+apiVersion: kro.run/v1alpha1
+kind: ResourceGraphDefinition
+metadata:
+  name: test-hardcoded-composition
+  namespace: default
+spec:
+  schema:
+    apiVersion: v1alpha1
+    kind: TestCluster
+    spec:
+      type: object
+      properties:
+        clusterName:
+          type: string
+        location:
+          type: string
+  resources:
+    # Test Resource Group with hardcoded values
+    - id: resourceGroup
+      template:
+        apiVersion: resources.azure.com/v1api20200601
+        kind: ResourceGroup
+        metadata:
+          name: "rg-test-hardcoded"
+          namespace: azure-system
+          annotations:
+            kro.run/dry-run: "true"
+        spec:
+          location: "eastus"
+          tags:
+            environment: "test"
+            createdBy: "kro-test-composition"

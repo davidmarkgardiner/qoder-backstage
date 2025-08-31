@@ -1,0 +1,63 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: argo-workflows
+  namespace: argo
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: argo-workflows
+      version: "0.41.0"
+      sourceRef:
+        kind: HelmRepository
+        name: argo
+        namespace: argo
+  values:
+    controller:
+      resources:
+        limits:
+          cpu: 500m
+          memory: 1Gi
+        requests:
+          cpu: 250m
+          memory: 512Mi
+      # Service account for the controller
+      serviceAccount:
+        create: true
+        name: argo-workflows-controller
+        annotations: {}
+    
+    server:
+      enabled: true
+      resources:
+        limits:
+          cpu: 100m
+          memory: 128Mi
+        requests:
+          cpu: 50m
+          memory: 64Mi
+      serviceType: ClusterIP
+      # Service account for the server
+      serviceAccount:
+        create: true
+        name: argo-workflows-server
+        annotations: {}
+    
+    # Executor configuration
+    executor:
+      serviceAccount:
+        create: true
+        name: argo-workflows-executor
+    
+    # Global RBAC settings
+    rbac:
+      create: true
+    
+    # Single sign-on configuration (disabled for simplicity)
+    singleNamespace: false
+    
+    # Workflow retention policy
+    useDefaultArtifactRepo: false
+    artifactRepository:
+      archiveLogs: false

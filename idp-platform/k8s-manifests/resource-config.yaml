@@ -1,0 +1,23 @@
+# Resource configuration for Kustomize
+configurations:
+  - |
+    nameReference:
+      - kind: Service
+        version: v1
+        fieldSpecs:
+        - path: spec/rules/http/paths/backend/service/name
+          kind: Ingress
+        - path: spec/http/route/destination/host
+          kind: VirtualService
+      - kind: Secret
+        version: v1
+        fieldSpecs:
+        - path: spec/tls/credentialName
+          kind: Gateway
+      - kind: ConfigMap
+        version: v1
+        fieldSpecs:
+        - path: spec/template/spec/volumes/configMap/name
+          kind: Deployment
+        - path: spec/volumes/configMap/name
+          kind: Pod

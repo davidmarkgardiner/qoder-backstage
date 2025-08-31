@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: azure-config
+  namespace: external-dns
+  labels:
+    app.kubernetes.io/name: external-dns
+    app.kubernetes.io/component: dns-management
+    app.kubernetes.io/part-of: platform-infrastructure
+  annotations:
+    platform.io/component: external-dns
+    platform.io/description: "Azure configuration for External DNS Workload Identity"
+data:
+  # Azure configuration file for External DNS
+  # Minimal configuration for Workload Identity - tenant and client ID come from environment variables
+  azure.json: |
+    {
+      "subscriptionId": "133d5755-4074-4d6e-ad38-eb2a6ad12903",
+      "resourceGroup": "dns",
+      "useWorkloadIdentityExtension": true
+    }

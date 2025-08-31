@@ -1,0 +1,21 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: demo-app-tls-cert
+  namespace: demo-app
+  labels:
+    app.kubernetes.io/name: demo-app
+    app.kubernetes.io/component: tls-certificate
+spec:
+  secretName: demo-wildcard-tls-cert
+  issuerRef:
+    name: letsencrypt-prod-dns01
+    kind: ClusterIssuer
+  dnsNames:
+  - "demo.davidmarkgardiner.co.uk"
+  - "*.demo.davidmarkgardiner.co.uk"
+  usages:
+  - digital signature
+  - key encipherment
+  duration: 2160h # 90 days
+  renewBefore: 360h # 15 days

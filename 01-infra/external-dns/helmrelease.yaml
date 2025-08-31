@@ -1,0 +1,127 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: external-dns
+  namespace: external-dns
+spec:
+  interval: 10m
+  timeout: 5m
+  chart:
+    spec:
+      chart: external-dns
+      version: '1.18.*'
+      sourceRef:
+        kind: HelmRepository
+        name: external-dns
+      interval: 5m
+  releaseName: external-dns
+  install:
+    remediation:
+      retries: 3
+  upgrade:
+    remediation:
+      retries: 3
+  test:
+    enable: true
+  driftDetection:
+    mode: enabled
+    ignore:
+      - paths: ["/spec/replicas"]
+        target:
+          kind: Deployment
+  values:
+    fullnameOverride: external-dns
+    
+    serviceAccount:
+      create: true
+      name: external-dns
+      labels:
+        azure.workload.identity/use: "true"
+      annotations:
+        azure.workload.identity/client-id: "721782e9-90d6-4563-8e92-a0889337243e"    
+    podLabels:
+      azure.workload.identity/use: "true"
+    
+    provider:
+      name: azure
+    
+    # Sources for DNS records
+    sources:
+      - service
+      - ingress
+      - istio-virtualservice
+    
+    # Azure-specific configuration
+    extraArgs:
+      - --source=istio-virtualservice
+      - --source=service
+      - --azure-resource-group=dns
+      - --txt-owner-id=external-dns-azure
+    
+    # Environment variables for Azure configuration
+    env:
+      # Azure subscription and resource group (environment-specific)
+      - name: AZURE_TENANT_ID
+        value: "550cfcda-8a2d-452c-ba71-d6bc6bf5bb31"
+      # Azure subscription and resource group (environment-specific)
+      - name: AZURE_SUBSCRIPTION_ID
+        value: "133d5755-4074-4d6e-ad38-eb2a6ad12903"
+      - name: AZURE_RESOURCE_GROUP
+        value: "dns"
+    
+    # Mount Azure config from secret
+    extraVolumes:
+      - name: azure-config-file
+        secret:
+          secretName: external-dns-azure-secret
+    
+    extraVolumeMounts:
+      - name: azure-config-file
+        mountPath: /etc/kubernetes
+        readOnly: true
+    
+    # Resource management
+    resources:
+      limits:
+        memory: 256Mi
+        cpu: 200m
+      requests:
+        memory: 128Mi
+        cpu: 100m
+    
+    # Log configuration
+    logLevel: info
+    logFormat: text
+    
+    # DNS policy
+    policy: sync
+    interval: 1m
+    
+    # Security context
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 10001
+      readOnlyRootFilesystem: true
+    
+    podSecurityContext:
+      fsGroup: 65534
+    
+    # # Monitoring
+    # serviceMonitor:
+    #   enabled: true
+    #   interval: 30s
+    
+    # High availability
+    replicaCount: 2
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchExpressions:
+                  - key: app.kubernetes.io/name
+                    operator: In
+                    values:
+                      - external-dns
+              topologyKey: kubernetes.io/hostname

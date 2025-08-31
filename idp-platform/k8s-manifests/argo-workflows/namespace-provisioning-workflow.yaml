@@ -1,0 +1,366 @@
+apiVersion: argoproj.io/v1alpha1
+kind: WorkflowTemplate
+metadata:
+  name: namespace-provisioning
+  namespace: argo
+  labels:
+    app.kubernetes.io/name: namespace-provisioning
+    app.kubernetes.io/component: workflow-template
+    app.kubernetes.io/managed-by: idp-platform
+  annotations:
+    workflows.argoproj.io/description: |
+      Template for provisioning Kubernetes namespaces with resource limits and network policies
+    workflows.argoproj.io/maintainer: IDP Platform Team
+    workflows.argoproj.io/tags: namespace,provisioning,self-service
+spec:
+  entrypoint: provision-namespace
+  
+  # Workflow arguments
+  arguments:
+    parameters:
+    - name: namespace-name
+      description: Name of the namespace to create
+    - name: description
+      description: Description of the namespace
+      default: ""
+    - name: cpu-request
+      description: Default CPU request
+      default: "100m"
+    - name: cpu-limit
+      description: Default CPU limit
+      default: "1000m"
+    - name: memory-request
+      description: Default memory request
+      default: "128Mi"
+    - name: memory-limit
+      description: Default memory limit
+      default: "1Gi"
+    - name: network-isolated
+      description: Enable network isolation
+      default: "true"
+    - name: created-by
+      description: User or system that created the namespace
+      default: "idp-platform"
+    - name: dry-run
+      description: Perform a dry run without creating resources
+      default: "false"
+
+  # Workflow templates
+  templates:
+  - name: provision-namespace
+    steps:
+    - - name: validate-namespace
+        template: validate-namespace-step
+        arguments:
+          parameters:
+          - name: namespace-name
+            value: "{{workflow.parameters.namespace-name}}"
+    - - name: create-namespace
+        template: create-namespace-step
+        arguments:
+          parameters:
+          - name: namespace-name
+            value: "{{workflow.parameters.namespace-name}}"
+          - name: description
+            value: "{{workflow.parameters.description}}"
+          - name: created-by
+            value: "{{workflow.parameters.created-by}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+    - - name: apply-limit-range
+        template: apply-limit-range-step
+        arguments:
+          parameters:
+          - name: namespace-name
+            value: "{{workflow.parameters.namespace-name}}"
+          - name: cpu-request
+            value: "{{workflow.parameters.cpu-request}}"
+          - name: cpu-limit
+            value: "{{workflow.parameters.cpu-limit}}"
+          - name: memory-request
+            value: "{{workflow.parameters.memory-request}}"
+          - name: memory-limit
+            value: "{{workflow.parameters.memory-limit}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+    - - name: apply-network-policy
+        template: apply-network-policy-step
+        arguments:
+          parameters:
+          - name: namespace-name
+            value: "{{workflow.parameters.namespace-name}}"
+          - name: network-isolated
+            value: "{{workflow.parameters.network-isolated}}"
+          - name: dry-run
+            value: "{{workflow.parameters.dry-run}}"
+        when: "{{workflow.parameters.network-isolated}} == true"
+    - - name: verify-resources
+        template: verify-resources-step
+        arguments:
+          parameters:
+          - name: namespace-name
+            value: "{{workflow.parameters.namespace-name}}"
+          - name: network-isolated
+            value: "{{workflow.parameters.network-isolated}}"
+
+  # Step templates
+  - name: validate-namespace-step
+    inputs:
+      parameters:
+      - name: namespace-name
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Validating namespace name: {{inputs.parameters.namespace-name}}"
+        
+        # Validate namespace name format
+        if ! echo "{{inputs.parameters.namespace-name}}" | grep -qE '^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$'; then
+          echo "ERROR: Invalid namespace name format"
+          exit 1
+        fi
+        
+        # Check if namespace already exists
+        if kubectl get namespace "{{inputs.parameters.namespace-name}}" 2>/dev/null; then
+          echo "ERROR: Namespace {{inputs.parameters.namespace-name}} already exists"
+          exit 1
+        fi
+        
+        echo "Validation passed for namespace: {{inputs.parameters.namespace-name}}"
+
+  - name: create-namespace-step
+    inputs:
+      parameters:
+      - name: namespace-name
+      - name: description
+      - name: created-by
+      - name: dry-run
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Creating namespace: {{inputs.parameters.namespace-name}}"
+        
+        # Create namespace manifest
+        cat <<EOF > /tmp/namespace.yaml
+        apiVersion: v1
+        kind: Namespace
+        metadata:
+          name: {{inputs.parameters.namespace-name}}
+          labels:
+            app.kubernetes.io/managed-by: "idp-platform"
+            idp-platform/created-by: "namespace-onboarding"
+            idp-platform/resource-managed: "true"
+            idp-platform/network-isolated: "{{workflow.parameters.network-isolated}}"
+          annotations:
+            idp-platform/description: "{{inputs.parameters.description}}"
+            idp-platform/created-at: "$(date -Iseconds)"
+            idp-platform/created-by: "{{inputs.parameters.created-by}}"
+            idp-platform/workflow-id: "{{workflow.uid}}"
+        spec: {}
+        EOF
+        
+        if [ "{{inputs.parameters.dry-run}}" = "true" ]; then
+          echo "DRY RUN: Would create namespace with manifest:"
+          cat /tmp/namespace.yaml
+        else
+          kubectl apply -f /tmp/namespace.yaml
+          echo "Namespace {{inputs.parameters.namespace-name}} created successfully"
+        fi
+
+  - name: apply-limit-range-step
+    inputs:
+      parameters:
+      - name: namespace-name
+      - name: cpu-request
+      - name: cpu-limit
+      - name: memory-request
+      - name: memory-limit
+      - name: dry-run
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Applying resource limits to namespace: {{inputs.parameters.namespace-name}}"
+        
+        # Calculate max limits (2x the default limits)
+        CPU_MAX_LIMIT=$(echo "{{inputs.parameters.cpu-limit}}" | sed 's/m//' | awk '{print $1 * 2}')m
+        MEMORY_LIMIT_VALUE=$(echo "{{inputs.parameters.memory-limit}}" | sed 's/[GM]i//')
+        MEMORY_UNIT=$(echo "{{inputs.parameters.memory-limit}}" | sed 's/[0-9.]*//')
+        MEMORY_MAX_LIMIT="${MEMORY_LIMIT_VALUE}${MEMORY_UNIT}"
+        
+        if [ "$MEMORY_UNIT" = "Mi" ] && [ $MEMORY_LIMIT_VALUE -ge 512 ]; then
+          MEMORY_MAX_LIMIT="$((MEMORY_LIMIT_VALUE * 2))Mi"
+        elif [ "$MEMORY_UNIT" = "Gi" ]; then
+          MEMORY_MAX_LIMIT="$((MEMORY_LIMIT_VALUE * 2))Gi"
+        fi
+        
+        # Create LimitRange manifest
+        cat <<EOF > /tmp/limit-range.yaml
+        apiVersion: v1
+        kind: LimitRange
+        metadata:
+          name: resource-limits
+          namespace: {{inputs.parameters.namespace-name}}
+          labels:
+            app.kubernetes.io/managed-by: "idp-platform"
+            idp-platform/component: "resource-limits"
+          annotations:
+            idp-platform/created-at: "$(date -Iseconds)"
+            idp-platform/workflow-id: "{{workflow.uid}}"
+        spec:
+          limits:
+          - type: Container
+            default:
+              cpu: "{{inputs.parameters.cpu-limit}}"
+              memory: "{{inputs.parameters.memory-limit}}"
+            defaultRequest:
+              cpu: "{{inputs.parameters.cpu-request}}"
+              memory: "{{inputs.parameters.memory-request}}"
+            max:
+              cpu: "${CPU_MAX_LIMIT}"
+              memory: "${MEMORY_MAX_LIMIT}"
+            min:
+              cpu: "10m"
+              memory: "64Mi"
+          - type: Pod
+            max:
+              cpu: "${CPU_MAX_LIMIT}"
+              memory: "${MEMORY_MAX_LIMIT}"
+            min:
+              cpu: "10m"
+              memory: "64Mi"
+          - type: PersistentVolumeClaim
+            max:
+              storage: "10Gi"
+            min:
+              storage: "1Gi"
+        EOF
+        
+        if [ "{{inputs.parameters.dry-run}}" = "true" ]; then
+          echo "DRY RUN: Would apply LimitRange with manifest:"
+          cat /tmp/limit-range.yaml
+        else
+          kubectl apply -f /tmp/limit-range.yaml
+          echo "Resource limits applied successfully"
+        fi
+
+  - name: apply-network-policy-step
+    inputs:
+      parameters:
+      - name: namespace-name
+      - name: network-isolated
+      - name: dry-run
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Applying network policy to namespace: {{inputs.parameters.namespace-name}}"
+        
+        # Create NetworkPolicy manifest
+        cat <<EOF > /tmp/network-policy.yaml
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        metadata:
+          name: namespace-isolation
+          namespace: {{inputs.parameters.namespace-name}}
+          labels:
+            app.kubernetes.io/managed-by: "idp-platform"
+            idp-platform/component: "network-policy"
+          annotations:
+            idp-platform/created-at: "$(date -Iseconds)"
+            idp-platform/workflow-id: "{{workflow.uid}}"
+            idp-platform/description: "Default deny-all with same-namespace and DNS exceptions"
+        spec:
+          podSelector: {}
+          policyTypes:
+          - Ingress
+          - Egress
+          ingress:
+          - from:
+            - podSelector: {}
+          egress:
+          - to:
+            - podSelector: {}
+          - to:
+            - namespaceSelector:
+                matchLabels:
+                  name: kube-system
+            ports:
+            - protocol: UDP
+              port: 53
+            - protocol: TCP
+              port: 53
+          - to:
+            - namespaceSelector:
+                matchLabels:
+                  kubernetes.io/metadata.name: kube-system
+            ports:
+            - protocol: UDP
+              port: 53
+            - protocol: TCP
+              port: 53
+        EOF
+        
+        if [ "{{inputs.parameters.dry-run}}" = "true" ]; then
+          echo "DRY RUN: Would apply NetworkPolicy with manifest:"
+          cat /tmp/network-policy.yaml
+        else
+          kubectl apply -f /tmp/network-policy.yaml
+          echo "Network policy applied successfully"
+        fi
+
+  - name: verify-resources-step
+    inputs:
+      parameters:
+      - name: namespace-name
+      - name: network-isolated
+    container:
+      image: bitnami/kubectl:latest
+      command: [sh, -c]
+      args:
+      - |
+        set -e
+        echo "Verifying resources for namespace: {{inputs.parameters.namespace-name}}"
+        
+        # Check namespace exists and is active
+        if ! kubectl get namespace "{{inputs.parameters.namespace-name}}" -o jsonpath='{.status.phase}' | grep -q "Active"; then
+          echo "ERROR: Namespace is not in Active state"
+          exit 1
+        fi
+        
+        # Check LimitRange exists
+        if ! kubectl get limitrange resource-limits -n "{{inputs.parameters.namespace-name}}" >/dev/null 2>&1; then
+          echo "ERROR: LimitRange not found"
+          exit 1
+        fi
+        
+        # Check NetworkPolicy exists (if network isolation is enabled)
+        if [ "{{inputs.parameters.network-isolated}}" = "true" ]; then
+          if ! kubectl get networkpolicy namespace-isolation -n "{{inputs.parameters.namespace-name}}" >/dev/null 2>&1; then
+            echo "ERROR: NetworkPolicy not found"
+            exit 1
+          fi
+          echo "Network policy verified successfully"
+        fi
+        
+        echo "All resources verified successfully for namespace: {{inputs.parameters.namespace-name}}"
+        
+        # Output summary
+        echo "=== Namespace Summary ==="
+        kubectl get namespace "{{inputs.parameters.namespace-name}}" -o yaml | grep -E "(name:|phase:|labels:|annotations:)" | head -10
+        echo "=== Resource Limits ==="
+        kubectl get limitrange resource-limits -n "{{inputs.parameters.namespace-name}}" -o yaml | grep -A 20 "limits:"
+        
+        if [ "{{inputs.parameters.network-isolated}}" = "true" ]; then
+          echo "=== Network Policy ==="
+          kubectl get networkpolicy namespace-isolation -n "{{inputs.parameters.namespace-name}}" -o jsonpath='{.spec.policyTypes}' && echo
+        fi

@@ -1,0 +1,24 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: infrastructure
+  annotations:
+    config.kubernetes.io/local-config: "true"
+    platform.io/description: "Base infrastructure operators and controllers"
+
+# Deploy second - base operators
+resources:
+  - cert-manager/
+  - external-dns/
+  - cert-manager-issuers/
+  - aso/
+  - kro/
+  - argo-workflows/
+  - demo-application/
+
+labels:
+- pairs:
+    platform.io/layer: "01-infrastructure"
+    platform.io/component: "infrastructure"
+    managed-by: flux

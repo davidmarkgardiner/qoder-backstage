@@ -1,0 +1,64 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: azure-service-operator
+  namespace: azureserviceoperator-system
+spec:
+  interval: 10m
+  dependsOn:
+    - name: cert-manager
+      namespace: cert-manager
+  chart:
+    spec:
+      chart: azure-service-operator
+      version: "2.8.0"
+      sourceRef:
+        kind: HelmRepository
+        name: azure-service-operator
+        namespace: azureserviceoperator-system
+      interval: 5m
+  values:
+    # CRD Pattern - specify which Azure resources we want to manage
+    crdPattern: "resources.azure.com/*;containerservice.azure.com/*;kubernetesconfiguration.azure.com/*;managedidentity.azure.com/*;authorization.azure.com/*"
+
+    # Azure Authentication - using workload identity
+    azureSubscriptionID: "133d5755-4074-4d6e-ad38-eb2a6ad12903"
+    azureTenantID: "550cfcda-8a2d-452c-ba71-d6bc6bf5bb31"
+    azureClientID: "42c4d2a4-4165-43d7-a66b-9d16a6434ca1"
+    useWorkloadIdentityAuth: true
+
+    # Service Account configuration for workload identity
+    serviceAccount:
+      annotations:
+        azure.workload.identity/client-id: "42c4d2a4-4165-43d7-a66b-9d16a6434ca1"
+
+    # Operator configuration
+    metrics:
+      enable: true
+      secure: false
+
+    # Multi-tenancy configuration
+    multitenant:
+      enable: false
+
+    # Webhook configuration
+    webhook:
+      port: 9443
+
+    # Resource limits
+    resources:
+      limits:
+        cpu: 100m
+        memory: 512Mi
+      requests:
+        cpu: 100m
+        memory: 512Mi
+
+    # Node selector for system nodes
+    nodeSelector:
+      agentpool: systempool
+
+    # Pod security context
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65532

@@ -1,0 +1,22 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: test-applications
+  annotations:
+    config.kubernetes.io/local-config: "true"
+    platform.io/description: "Test applications and DNS validation workloads"
+
+# Test applications for validation
+resources:
+  - demo-app-namespace.yaml
+  - demo-app-deployment.yaml
+  - demo-app-gateway.yaml
+  - demo-app-service.yaml
+  - demo-app-virtualservice.yaml
+
+labels:
+- pairs:
+    app.kubernetes.io/name: demo-app
+    app.kubernetes.io/component: demo-application
+    managed-by: flux

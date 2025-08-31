@@ -3,6 +3,7 @@ import clustersReducer from './clustersSlice';
 import workflowsReducer from './workflowsSlice';
 import azureReducer from './azureSlice';
 import uiReducer from './uiSlice';
+import namespacesReducer from './namespacesSlice';
 
 export const store = configureStore({
   reducer: {
@@ -10,6 +11,7 @@ export const store = configureStore({
     workflows: workflowsReducer,
     azure: azureReducer,
     ui: uiReducer,
+    namespaces: namespacesReducer,
   },
 });
 

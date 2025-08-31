@@ -1,0 +1,99 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 10m
+  chart:
+    spec:
+      chart: cert-manager
+      version: "v1.18.2"
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack
+        namespace: flux-system
+  values:
+    # Install CRDs with the chart
+    installCRDs: true
+
+    global:
+      logLevel: 2
+
+    replicaCount: 1
+
+    serviceAccount:
+      create: true
+      annotations:
+        azure.workload.identity/client-id: "8c84cfba-2b8d-4ef0-b0b3-caeb8d2cd0c9"
+      labels:
+        azure.workload.identity/use: "true"
+
+    podLabels:
+      azure.workload.identity/use: "true"
+
+    securityContext:
+      fsGroup: 1001
+
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+
+    nodeSelector:
+      kubernetes.io/os: linux
+
+    webhook:
+      replicaCount: 1
+      serviceAccount:
+        create: true
+        annotations:
+          azure.workload.identity/client-id: "8c84cfba-2b8d-4ef0-b0b3-caeb8d2cd0c9"
+        labels:
+          azure.workload.identity/use: "true"
+
+      podLabels:
+        azure.workload.identity/use: "true"
+
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+    cainjector:
+      replicaCount: 1
+      serviceAccount:
+        create: true
+        annotations:
+          azure.workload.identity/client-id: "0cc621c0-d7e0-4a87-bf6a-7cc5840a04a9"
+        labels:
+          azure.workload.identity/use: "true"
+
+      podLabels:
+        azure.workload.identity/use: "true"
+
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+    startupapicheck:
+      enabled: false
+      serviceAccount:
+        create: true
+        annotations:
+          azure.workload.identity/client-id: "0cc621c0-d7e0-4a87-bf6a-7cc5840a04a9"
+        labels:
+          azure.workload.identity/use: "true"
+
+      podLabels:
+        azure.workload.identity/use: "true"

@@ -32,12 +32,25 @@ module.exports = defineConfig({
       // Import grep plugin
       require('@cypress/grep/src/plugin')(config);
       
-      // Custom task to validate Azure resources
+      // Import Kubernetes commands
+      const kubernetesCommands = require('./cypress/support/kubernetes-commands');
+      
+      // Custom task to validate Azure resources and Kubernetes pods
       on('task', {
         log(message) {
           console.log(message)
           return null
         },
+        
+        // Kubernetes pod validation tasks
+        validatePodResources: kubernetesCommands.validatePodResources,
+        validateServiceConnectivity: kubernetesCommands.validateServiceConnectivity,
+        validateServiceEndpoints: kubernetesCommands.validateServiceEndpoints,
+        testCrossServiceCommunication: kubernetesCommands.testCrossServiceCommunication,
+        validatePodResilience: kubernetesCommands.validatePodResilience,
+        getPodLogs: kubernetesCommands.getPodLogs,
+        validateIstioSidecar: kubernetesCommands.validateIstioSidecar,
+        testExternalConnectivity: kubernetesCommands.testExternalConnectivity,
         
         async validateAzureCluster(clusterName) {
           const { exec } = require('child_process');

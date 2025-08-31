@@ -339,29 +339,73 @@ const ClusterOnboarding = () => {
             {/* Node Pool Type Info */}
             {getSelectedNodePoolType() && (
               <Card>
-                <CardHeader title="Node Pool Configuration" />
+                <CardHeader title="Karpenter Node Pool Configuration" />
                 <CardContent>
                   <Typography variant="h6">{getSelectedNodePoolType().displayName}</Typography>
                   <Typography variant="body2" color="text.secondary" gutterBottom>
                     {getSelectedNodePoolType().description}
                   </Typography>
+                  
                   <Box sx={{ mt: 2 }}>
-                    <Typography variant="caption" display="block">Default VM Size:</Typography>
-                    <Typography variant="body2">{getSelectedNodePoolType().defaultVmSize}</Typography>
+                    <Typography variant="caption" display="block">VM Sizes:</Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
+                      {getSelectedNodePoolType().vmSizes?.map((vmSize, index) => (
+                        <Chip 
+                          key={vmSize}
+                          label={vmSize} 
+                          size="small" 
+                          variant={index === 0 ? "filled" : "outlined"}
+                          color={index === 0 ? "primary" : "default"}
+                        />
+                      ))}
+                    </Box>
                     
-                    <Typography variant="caption" display="block" sx={{ mt: 1 }}>NAP Support:</Typography>
+                    <Typography variant="caption" display="block" sx={{ mt: 1 }}>Auto-Scaling:</Typography>
                     <Chip 
-                      label={getSelectedNodePoolType().napSupported ? 'Supported' : 'Not Supported'} 
+                      label="Karpenter Enabled" 
                       size="small" 
-                      color={getSelectedNodePoolType().napSupported ? 'success' : 'default'}
+                      color="success"
+                      icon={<CloudUploadIcon />}
                     />
                     
                     <Typography variant="caption" display="block" sx={{ mt: 1 }}>Cost Tier:</Typography>
                     <Chip 
                       label={getSelectedNodePoolType().costTier} 
                       size="small" 
-                      color={getSelectedNodePoolType().costTier === 'low' ? 'success' : 'warning'}
+                      color={getSelectedNodePoolType().costTier === 'low' ? 'success' : getSelectedNodePoolType().costTier === 'very-low' ? 'info' : 'warning'}
                     />
+                    
+                    {getSelectedNodePoolType().karpenterConfig && (
+                      <Box sx={{ mt: 2, p: 1, bgcolor: 'grey.50', borderRadius: 1 }}>
+                        <Typography variant="caption" display="block" fontWeight="bold">Karpenter Configuration:</Typography>
+                        <Typography variant="body2" fontSize="0.75rem">
+                          • SKU Family: {getSelectedNodePoolType().karpenterConfig.skuFamily}
+                        </Typography>
+                        <Typography variant="body2" fontSize="0.75rem">
+                          • Max Resources: {getSelectedNodePoolType().karpenterConfig.maxCpu} CPU, {getSelectedNodePoolType().karpenterConfig.maxMemory}
+                        </Typography>
+                        <Typography variant="body2" fontSize="0.75rem">
+                          • Node Class: {getSelectedNodePoolType().karpenterConfig.nodeClassType}
+                        </Typography>
+                      </Box>
+                    )}
+                    
+                    {getSelectedNodePoolType().recommendedFor && getSelectedNodePoolType().recommendedFor.length > 0 && (
+                      <Box sx={{ mt: 1 }}>
+                        <Typography variant="caption" display="block">Recommended For:</Typography>
+                        <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
+                          {getSelectedNodePoolType().recommendedFor.map((workload) => (
+                            <Chip 
+                              key={workload}
+                              label={workload} 
+                              size="small" 
+                              variant="outlined"
+                              color="default"
+                            />
+                          ))}
+                        </Box>
+                      </Box>
+                    )}
                   </Box>
                 </CardContent>
               </Card>
@@ -370,31 +414,69 @@ const ClusterOnboarding = () => {
             {/* Recommendations */}
             {getRecommendation() && (
               <Card>
-                <CardHeader title="Recommendations" />
+                <CardHeader title="Karpenter Features & Recommendations" />
                 <CardContent>
                   <Typography variant="body2" gutterBottom>
                     <strong>Best for:</strong> {getRecommendation().useCase}
                   </Typography>
+                  
+                  {getRecommendation().karpenterFeatures && (
+                    <Box sx={{ mt: 2, p: 1, bgcolor: 'info.light', color: 'info.contrastText', borderRadius: 1 }}>
+                      <Typography variant="caption" fontWeight="bold" display="block">
+                        Karpenter Benefits:
+                      </Typography>
+                      <Typography variant="body2" fontSize="0.75rem">
+                        • {getRecommendation().karpenterFeatures.autoScaling}
+                      </Typography>
+                      <Typography variant="body2" fontSize="0.75rem">
+                        • {getRecommendation().karpenterFeatures.spotSupport}
+                      </Typography>
+                      <Typography variant="body2" fontSize="0.75rem">
+                        • {getRecommendation().karpenterFeatures.nodeConsolidation}
+                      </Typography>
+                      <Typography variant="body2" fontSize="0.75rem">
+                        • {getRecommendation().karpenterFeatures.multiInstanceType}
+                      </Typography>
+                    </Box>
+                  )}
+                  
                   <Box sx={{ mt: 2 }}>
-                    <Typography variant="caption" color="success.main">Pros:</Typography>
+                    <Typography variant="caption" color="success.main">Advantages:</Typography>
                     <ul style={{ margin: 0, paddingLeft: '20px' }}>
                       {getRecommendation().pros.map((pro, index) => (
                         <li key={index}>
-                          <Typography variant="body2">{pro}</Typography>
+                          <Typography variant="body2" fontSize="0.8rem">{pro}</Typography>
                         </li>
                       ))}
                     </ul>
                   </Box>
                   <Box sx={{ mt: 1 }}>
-                    <Typography variant="caption" color="warning.main">Cons:</Typography>
+                    <Typography variant="caption" color="warning.main">Considerations:</Typography>
                     <ul style={{ margin: 0, paddingLeft: '20px' }}>
                       {getRecommendation().cons.map((con, index) => (
                         <li key={index}>
-                          <Typography variant="body2">{con}</Typography>
+                          <Typography variant="body2" fontSize="0.8rem">{con}</Typography>
                         </li>
                       ))}
                     </ul>
                   </Box>
+                  
+                  {getRecommendation().recommendedFor && getRecommendation().recommendedFor.length > 0 && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="caption" display="block">Typical Workloads:</Typography>
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                        {getRecommendation().recommendedFor.map((workload) => (
+                          <Chip 
+                            key={workload}
+                            label={workload} 
+                            size="small" 
+                            variant="outlined"
+                            color="primary"
+                          />
+                        ))}
+                      </Box>
+                    </Box>
+                  )}
                 </CardContent>
               </Card>
             )}

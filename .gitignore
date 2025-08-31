@@ -1,3 +1,5 @@
+
+/scripts
 # Dependencies
 node_modules/
 npm-debug.log*
@@ -179,3 +181,5 @@ Desktop.ini
 # Temporary files
 *.tmp
 *.temp
+aks-admin
+scripts/cmd.txt

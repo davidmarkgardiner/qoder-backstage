@@ -1,0 +1,209 @@
+apiVersion: karpenter.azure.com/v1alpha2
+kind: AKSNodeClass
+metadata:
+  name: default-nodeclass
+  namespace: karpenter
+  labels:
+    app.kubernetes.io/name: karpenter-nodeclass
+    app.kubernetes.io/component: node-management
+    app.kubernetes.io/managed-by: idp-platform
+  annotations:
+    karpenter.azure.com/description: "Default AKSNodeClass template for IDP Platform clusters"
+    idp-platform/template-version: "v1.0.0"
+spec:
+  # Azure region where nodes will be created
+  location: "${CLUSTER_LOCATION}"
+  
+  # Resource group containing the AKS cluster
+  resourceGroup: "${RESOURCE_GROUP_NAME}"
+  
+  # Subnet for node placement
+  subnetName: "${SUBNET_NAME}"
+  
+  # VM instance types supported by this node class
+  instanceTypes:
+    - "${PRIMARY_VM_SIZE}"
+    - "${SECONDARY_VM_SIZE}"
+  
+  # OS disk configuration
+  osDisk:
+    sizeGb: 100
+    type: Premium_LRS
+  
+  # Image reference configuration
+  imageReference:
+    publisher: "microsoft-aks"
+    offer: "aks"
+    sku: "aks-engine-ubuntu-1804-202311"
+    version: "latest"
+  
+  # User data script for node initialization
+  userData: |
+    #!/bin/bash
+    set -e
+    
+    echo "=== Karpenter Node Initialization ==="
+    echo "Timestamp: $(date -Iseconds)"
+    echo "Cluster: ${CLUSTER_NAME}"
+    echo "Node Class: ${NODE_CLASS_NAME}"
+    echo "Instance Type: $(curl -s -H Metadata:true http://169.254.169.254/metadata/instance/compute/vmSize?api-version=2021-02-01&format=text)"
+    
+    # Install required packages
+    apt-get update -y
+    apt-get install -y jq curl
+    
+    # Configure container runtime
+    systemctl enable containerd
+    systemctl start containerd
+    
+    # Configure kubelet
+    echo "Configuring kubelet for Karpenter node..."
+    
+    # Custom labels and taints will be applied by Karpenter
+    echo "Node initialization completed successfully"
+  
+  # Network security group rules
+  securityGroupSelector:
+    karpenter.azure.com/cluster: "${CLUSTER_NAME}"
+  
+  # Tags applied to all nodes created by this NodeClass
+  tags:
+    # Standard Azure tags
+    Environment: "${ENVIRONMENT}"
+    Project: "idp-platform"
+    ManagedBy: "karpenter"
+    
+    # Cluster identification
+    ClusterName: "${CLUSTER_NAME}"
+    NodeClass: "${NODE_CLASS_NAME}"
+    
+    # Cost tracking
+    CostCenter: "${COST_CENTER}"
+    Team: "${TEAM_NAME}"
+    
+    # Lifecycle management
+    CreatedAt: "${CREATION_TIMESTAMP}"
+    WorkflowId: "${WORKFLOW_ID}"
+    
+    # Karpenter-specific tags
+    "karpenter.sh/cluster": "${CLUSTER_NAME}"
+    "karpenter.sh/managed-by": "karpenter"
+
+---
+# Example specialized NodeClass for memory-optimized workloads
+apiVersion: karpenter.azure.com/v1alpha2
+kind: AKSNodeClass
+metadata:
+  name: memory-optimized-nodeclass
+  namespace: karpenter
+  labels:
+    app.kubernetes.io/name: karpenter-nodeclass-memory
+    app.kubernetes.io/component: node-management
+    app.kubernetes.io/managed-by: idp-platform
+    idp-platform/node-pool-type: memory-optimized
+  annotations:
+    karpenter.azure.com/description: "Memory-optimized AKSNodeClass for high-memory workloads"
+    idp-platform/template-version: "v1.0.0"
+spec:
+  location: "${CLUSTER_LOCATION}"
+  resourceGroup: "${RESOURCE_GROUP_NAME}"
+  subnetName: "${SUBNET_NAME}"
+  
+  # Memory-optimized VM sizes
+  instanceTypes:
+    - "Standard_E2s_v3"   # 2 vCPU, 16 GB RAM
+    - "Standard_E4s_v3"   # 4 vCPU, 32 GB RAM
+    - "Standard_E8s_v3"   # 8 vCPU, 64 GB RAM
+    - "Standard_E16s_v3"  # 16 vCPU, 128 GB RAM
+  
+  # Larger OS disk for memory-intensive workloads
+  osDisk:
+    sizeGb: 200
+    type: Premium_LRS
+  
+  # Additional memory configuration
+  userData: |
+    #!/bin/bash
+    set -e
+    
+    echo "=== Memory-Optimized Node Initialization ==="
+    echo "Configuring memory-optimized settings..."
+    
+    # Set kernel parameters for high-memory workloads
+    echo "vm.swappiness=1" >> /etc/sysctl.conf
+    echo "vm.dirty_ratio=3" >> /etc/sysctl.conf
+    echo "vm.dirty_background_ratio=1" >> /etc/sysctl.conf
+    sysctl -p
+    
+    # Configure huge pages if needed
+    echo "never" > /sys/kernel/mm/transparent_hugepage/enabled
+    
+    echo "Memory-optimized node configuration completed"
+  
+  tags:
+    NodeType: "memory-optimized"
+    Environment: "${ENVIRONMENT}"
+    ClusterName: "${CLUSTER_NAME}"
+    ManagedBy: "karpenter"
+    OptimizedFor: "high-memory-workloads"
+
+---
+# Example specialized NodeClass for compute-optimized workloads  
+apiVersion: karpenter.azure.com/v1alpha2
+kind: AKSNodeClass
+metadata:
+  name: compute-optimized-nodeclass
+  namespace: karpenter
+  labels:
+    app.kubernetes.io/name: karpenter-nodeclass-compute
+    app.kubernetes.io/component: node-management
+    app.kubernetes.io/managed-by: idp-platform
+    idp-platform/node-pool-type: compute-optimized
+  annotations:
+    karpenter.azure.com/description: "Compute-optimized AKSNodeClass for CPU-intensive workloads"
+    idp-platform/template-version: "v1.0.0"
+spec:
+  location: "${CLUSTER_LOCATION}"
+  resourceGroup: "${RESOURCE_GROUP_NAME}"
+  subnetName: "${SUBNET_NAME}"
+  
+  # Compute-optimized VM sizes
+  instanceTypes:
+    - "Standard_F2s_v2"   # 2 vCPU, 4 GB RAM
+    - "Standard_F4s_v2"   # 4 vCPU, 8 GB RAM
+    - "Standard_F8s_v2"   # 8 vCPU, 16 GB RAM
+    - "Standard_F16s_v2"  # 16 vCPU, 32 GB RAM
+  
+  # Standard OS disk for compute workloads
+  osDisk:
+    sizeGb: 100
+    type: Premium_LRS
+  
+  # CPU optimization configuration
+  userData: |
+    #!/bin/bash
+    set -e
+    
+    echo "=== Compute-Optimized Node Initialization ==="
+    echo "Configuring CPU-optimized settings..."
+    
+    # Set CPU scaling governor to performance
+    echo "performance" > /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
+    
+    # Disable CPU idle states for consistent performance
+    echo 1 > /sys/devices/system/cpu/cpu*/cpuidle/state1/disable
+    echo 1 > /sys/devices/system/cpu/cpu*/cpuidle/state2/disable
+    
+    # Configure kernel parameters for CPU-intensive workloads
+    echo "kernel.sched_migration_cost_ns=5000000" >> /etc/sysctl.conf
+    echo "kernel.sched_autogroup_enabled=0" >> /etc/sysctl.conf
+    sysctl -p
+    
+    echo "Compute-optimized node configuration completed"
+  
+  tags:
+    NodeType: "compute-optimized"
+    Environment: "${ENVIRONMENT}"
+    ClusterName: "${CLUSTER_NAME}"
+    ManagedBy: "karpenter"
+    OptimizedFor: "cpu-intensive-workloads"

@@ -68,6 +68,5 @@
     "start-server-and-test": "^2.0.3",
     "wait-on": "^7.2.0",
     "concurrently": "^8.2.2"
-  },
-  "proxy": "http://localhost:3001"
+  }
 }

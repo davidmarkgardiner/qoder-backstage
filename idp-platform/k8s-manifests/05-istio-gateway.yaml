@@ -1,0 +1,172 @@
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: idp-gateway
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-platform
+    app.kubernetes.io/component: gateway
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "idp.davidmarkgardiner.co.uk"
+    external-dns.alpha.kubernetes.io/ttl: "300"
+spec:
+  selector:
+    app: aks-istio-ingressgateway-external
+    istio: aks-istio-ingressgateway-external
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "idp.davidmarkgardiner.co.uk"
+    tls:
+      httpsRedirect: true
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: idp-wildcard-tls-cert
+    hosts:
+    - "idp.davidmarkgardiner.co.uk"
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: idp-virtualservice
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-platform
+    app.kubernetes.io/component: virtualservice
+  annotations:
+    external-dns.alpha.kubernetes.io/hostname: "idp.davidmarkgardiner.co.uk"
+    external-dns.alpha.kubernetes.io/ttl: "300"
+spec:
+  hosts:
+  - "idp.davidmarkgardiner.co.uk"
+  gateways:
+  - idp-gateway
+  http:
+  # Backend API routes
+  - match:
+    - uri:
+        prefix: "/api/"
+    - uri:
+        prefix: "/health"
+    route:
+    - destination:
+        host: idp-backend-service.idp-platform.svc.cluster.local
+        port:
+          number: 3001
+      weight: 100
+    headers:
+      request:
+        add:
+          X-Forwarded-Proto: "https"
+          X-Forwarded-Host: "idp.davidmarkgardiner.co.uk"
+      response:
+        add:
+          X-IDP-Backend: "Active"
+    timeout: 30s
+    retries:
+      attempts: 3
+      perTryTimeout: 10s
+  # WebSocket support for real-time updates
+  - match:
+    - uri:
+        prefix: "/ws"
+    - headers:
+        upgrade:
+          exact: websocket
+    route:
+    - destination:
+        host: idp-backend-service.idp-platform.svc.cluster.local
+        port:
+          number: 3001
+      weight: 100
+    headers:
+      request:
+        add:
+          X-Forwarded-Proto: "https"
+    timeout: 300s  # Longer timeout for WebSocket connections
+  # Frontend routes (catch-all for SPA)
+  - match:
+    - uri:
+        prefix: "/"
+    route:
+    - destination:
+        host: idp-frontend-service.idp-platform.svc.cluster.local
+        port:
+          number: 80
+      weight: 100
+    headers:
+      response:
+        add:
+          X-IDP-Frontend: "Active"
+          X-Frame-Options: "SAMEORIGIN"
+          X-Content-Type-Options: "nosniff"
+    timeout: 30s
+---
+# Optional: Internal Gateway for cluster-internal access
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: idp-internal-gateway
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-platform
+    app.kubernetes.io/component: internal-gateway
+spec:
+  selector:
+    app: aks-istio-ingressgateway-internal
+    istio: aks-istio-ingressgateway-internal
+  servers:
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - "idp-internal.idp-platform.svc.cluster.local"
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: idp-wildcard-tls-cert
+    hosts:
+    - "idp-internal.idp-platform.svc.cluster.local"
+---
+# Internal VirtualService for cluster-to-cluster communication
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: idp-internal-virtualservice
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-platform
+    app.kubernetes.io/component: internal-virtualservice
+spec:
+  hosts:
+  - "idp-internal.idp-platform.svc.cluster.local"
+  gateways:
+  - idp-internal-gateway
+  http:
+  - match:
+    - uri:
+        prefix: "/api/"
+    route:
+    - destination:
+        host: idp-backend-service.idp-platform.svc.cluster.local
+        port:
+          number: 3001
+  - match:
+    - uri:
+        prefix: "/"
+    route:
+    - destination:
+        host: idp-frontend-service.idp-platform.svc.cluster.local
+        port:
+          number: 80

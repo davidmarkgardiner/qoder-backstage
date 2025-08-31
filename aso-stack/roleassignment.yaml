@@ -37,6 +37,34 @@ spec:
   roleDefinitionReference:
     # This ARM ID represents "dns zone conrtibutor" - you can read about other built in roles here: https://docs.microsoft.com/en-us/azure/role-based-access-control/built-in-roles
     armId: /subscriptions/133d5755-4074-4d6e-ad38-eb2a6ad12903/providers/Microsoft.Authorization/roleDefinitions/befefa01-2a29-4197-83a8-272ff33ce314
+# ---
+# apiVersion: subscription.azure.com/v1api20211001
+# kind: Alias
+# metadata:
+#   name: mysubscription
+#   namespace: default
+# spec:
+#   # Creating an Alias creates a subscription. Deleting an Alias cancels that subscription.
+#   # Be sure you're ready to cancel the subscription before you delete the Alias. If you don't want to
+#   # cancel the subscription but you want to delete the Alias through ASO, use
+#   # https://azure.github.io/azure-service-operator/guide/annotations/#serviceoperatorazurecomreconcile-policy
+#   # RoleAssignments and other extension resources can be assigned to the Alias and apply to the actual subscription.
+#   properties:
+#     displayName: "ASO Demo Subscription"
+#     workload: Production
+#     billingScope: /providers/Microsoft.Billing/billingAccounts/00000000-0000-0000-0000-000000000000:00000000-0000-0000-0000-000000000000_2019-05-31/billingProfiles/0000-0000-000-000/invoiceSections/0000-0000-000-000
+#     # additionalProperties:
+#     #   subscriptionId can be set to adopt an existing subscription by creating a new Alias to it
+#     #   subscriptionId: 00000000-0000-0000-0000-000000000000
+# ---
+# # Add this before your RoleAssignment
+# apiVersion: subscription.azure.com/v1api20211001
+# kind: Alias
+# metadata:
+#   name: current-subscription
+#   namespace: azure-system
+# spec:
+#   subscriptionId: "133d5755-4074-4d6e-ad38-eb2a6ad12903"
 ---
 apiVersion: authorization.azure.com/v1api20200801preview
 kind: RoleAssignment
@@ -44,9 +72,13 @@ metadata:
   name: aso-subscription-contributor
   namespace: azure-system
 spec:
-  # ASO needs permissions at subscription level to manage all Azure resources
+  # # ASO needs permissions at subscription level to manage all Azure resources
+  # owner:
+  #   name: current-subscription
+  #   group: resources.azure.com
+  #   kind: Subscription
   owner:
-    name: at39473-weu-dev-prod
+    name: aso
     group: resources.azure.com
     kind: ResourceGroup
   # This is the Principal ID of the ASO workload identity

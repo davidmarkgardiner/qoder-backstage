@@ -1,0 +1,12 @@
+apiVersion: resources.azure.com/v1api20200601
+kind: ResourceGroup
+metadata:
+  name: rg-direct-test
+  namespace: azure-system
+  annotations:
+    serviceoperator.azure.com/operator-namespace: azureserviceoperator-system
+spec:
+  location: eastus
+  tags:
+    environment: test
+    createdBy: direct-aso-test

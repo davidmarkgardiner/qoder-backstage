@@ -1,0 +1,146 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: idp-config
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-platform
+    app.kubernetes.io/component: config
+data:
+  # Application configuration
+  NODE_ENV: "production"
+  PORT: "3001"
+  LOG_LEVEL: "info"
+  
+  # CORS configuration
+  CORS_ORIGIN: "https://idp.davidmarkgardiner.co.uk"
+  CORS_CREDENTIALS: "true"
+  
+  # Kubernetes configuration
+  NAMESPACE_DEFAULT: "default"
+  NAMESPACE_AZURE: "azure-system"
+  NAMESPACE_ARGO: "argo"
+  K8S_CLUSTER_CONTEXT: "current"
+  
+  # Azure configuration
+  AZURE_SUBSCRIPTION_ID: "133d5755-4074-4d6e-ad38-eb2a6ad12903"
+  AZURE_TENANT_ID: "550cfcda-8a2d-452c-ba71-d6bc6bf5bb31"
+  AZURE_RESOURCE_GROUP_DNS: "dns"
+  
+  # Application URLs
+  FRONTEND_URL: "https://idp.davidmarkgardiner.co.uk"
+  BACKEND_URL: "https://idp.davidmarkgardiner.co.uk/api"
+  
+  # Feature flags
+  ENABLE_METRICS: "true"
+  ENABLE_HEALTH_CHECKS: "true"
+  ENABLE_DEBUG_LOGS: "false"
+  
+  # Argo Workflows configuration
+  ARGO_WORKFLOWS_NAMESPACE: "argo"
+  ARGO_WORKFLOWS_SERVICE_ACCOUNT: "argo-workflow"
+  
+  # ASO configuration
+  ASO_NAMESPACE: "azure-system"
+  ASO_SUBSCRIPTION_ID: "133d5755-4074-4d6e-ad38-eb2a6ad12903"
+  
+  # Domain configuration
+  DOMAIN_NAME: "davidmarkgardiner.co.uk"
+  SUBDOMAIN_PREFIX: "idp"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: idp-frontend-config
+  namespace: idp-platform
+  labels:
+    app.kubernetes.io/name: idp-frontend
+    app.kubernetes.io/component: config
+data:
+  nginx.conf: |
+    server {
+        listen 80;
+        server_name localhost;
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # Enable gzip compression
+        gzip on;
+        gzip_vary on;
+        gzip_min_length 1024;
+        gzip_comp_level 6;
+        gzip_types
+            text/plain
+            text/css
+            text/xml
+            text/javascript
+            application/javascript
+            application/xml+rss
+            application/json
+            image/svg+xml;
+
+        # Security headers
+        add_header X-Frame-Options "SAMEORIGIN" always;
+        add_header X-Content-Type-Options "nosniff" always;
+        add_header X-XSS-Protection "1; mode=block" always;
+        add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:; connect-src 'self' https://idp.davidmarkgardiner.co.uk;" always;
+
+        # Handle React Router
+        location / {
+            try_files $uri $uri/ /index.html;
+            
+            # Cache control for HTML files
+            location ~* \.html$ {
+                expires -1;
+                add_header Cache-Control "no-cache, no-store, must-revalidate";
+            }
+        }
+
+        # Static assets with long cache
+        location /static/ {
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+
+        # Favicon and manifest
+        location ~* \.(ico|png|jpg|jpeg|gif|css|js|woff|woff2|ttf|eot|svg)$ {
+            expires 30d;
+            add_header Cache-Control "public, max-age=2592000";
+        }
+
+        # Health check endpoint
+        location /health {
+            access_log off;
+            return 200 "healthy\n";
+            add_header Content-Type text/plain;
+        }
+
+        # Deny access to sensitive files
+        location ~ /\. {
+            deny all;
+            access_log off;
+            log_not_found off;
+        }
+
+        # API proxy configuration (if backend is in same cluster)
+        location /api/ {
+            proxy_pass http://idp-backend-service.idp-platform.svc.cluster.local:3001/;
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_set_header X-Forwarded-Host $host;
+            proxy_set_header X-Forwarded-Port $server_port;
+            
+            # WebSocket support
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            
+            # Timeout settings
+            proxy_connect_timeout 60s;
+            proxy_send_timeout 60s;
+            proxy_read_timeout 60s;
+        }
+    }

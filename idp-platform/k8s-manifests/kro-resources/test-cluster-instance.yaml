@@ -1,0 +1,8 @@
+apiVersion: kro.run/v1alpha1
+kind: TestCluster
+metadata:
+  name: test-cluster
+  namespace: default
+spec:
+  clusterName: "test-cluster"
+  location: "eastus"

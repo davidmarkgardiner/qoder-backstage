@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ${NAMESPACE_NAME}
+  labels:
+    app.kubernetes.io/managed-by: "idp-platform"
+    idp-platform/created-by: "namespace-onboarding"
+    idp-platform/resource-managed: "true"
+    idp-platform/network-isolated: "${NETWORK_ISOLATED}"
+  annotations:
+    idp-platform/description: "${DESCRIPTION}"
+    idp-platform/created-at: "${CREATED_AT}"
+    idp-platform/resource-limits: "${RESOURCE_LIMITS_JSON}"
+spec: {}
