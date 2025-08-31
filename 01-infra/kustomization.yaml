@@ -11,6 +11,7 @@ metadata:
 resources:
   - cert-manager/
   - external-dns/
+  - cert-manager-issuers/
   - aso/
   - kro/
   - argo-workflows/

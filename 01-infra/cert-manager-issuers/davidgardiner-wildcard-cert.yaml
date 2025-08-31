@@ -1,0 +1,75 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: davidgardiner-wildcard-cert
+  namespace: istio-system
+  labels:
+    app.kubernetes.io/name: davidgardiner-wildcard-cert
+    app.kubernetes.io/component: certificate
+    app.kubernetes.io/managed-by: cert-manager
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+    cert-manager.io/cluster-issuer: letsencrypt-production
+spec:
+  # Certificate details
+  secretName: davidgardiner-wildcard-tls-cert
+  issuerRef:
+    name: letsencrypt-production
+    kind: ClusterIssuer
+    group: cert-manager.io
+  
+  # DNS names covered by this certificate
+  dnsNames:
+  - "davidgardiner.co.uk"
+  - "*.davidgardiner.co.uk"
+  
+  # DNS01 challenge configuration
+  acme:
+    config:
+    - dns01:
+        azureDNS:
+          # Azure DNS configuration
+          clientID: ${AZURE_CLIENT_ID}
+          clientSecretSecretRef:
+            name: cert-manager-dns-credentials
+            key: client-secret
+          subscriptionID: ${AZURE_SUBSCRIPTION_ID}
+          tenantID: ${AZURE_TENANT_ID}
+          resourceGroupName: ${AZURE_DNS_RESOURCE_GROUP}
+          hostedZoneName: davidgardiner.co.uk
+          environment: AzurePublicCloud
+      domains:
+      - "davidgardiner.co.uk"
+      - "*.davidgardiner.co.uk"
+  
+  # Certificate properties
+  duration: 2160h0m0s    # 90 days
+  renewBefore: 360h0m0s  # 15 days
+  
+  # Private key configuration
+  privateKey:
+    algorithm: RSA
+    size: 2048
+    rotationPolicy: Always
+  
+  # Subject configuration
+  subject:
+    countries: ["AU"]
+    organizations: ["David Gardiner"]
+    organizationalUnits: ["Platform Engineering"]
+  
+  # Certificate usage
+  usages:
+  - digital signature
+  - key encipherment
+  - server auth
+  
+  # Additional certificate options
+  isCA: false
+  secretTemplate:
+    annotations:
+      cert-manager.io/certificate-name: davidgardiner-wildcard-cert
+      cert-manager.io/issuer-name: letsencrypt-production
+    labels:
+      app.kubernetes.io/name: davidgardiner-wildcard-cert
+      app.kubernetes.io/component: tls-certificate

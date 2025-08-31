@@ -10,6 +10,7 @@ metadata:
 # Deploy last - user applications
 resources:
 - tests/
+- demo-app/
 
 labels:
 - pairs:
